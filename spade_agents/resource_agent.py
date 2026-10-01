@@ -19,7 +19,7 @@ with open(TEST_CONFIG_PATH, "r") as f:
     test_config = yaml.safe_load(f)
 
 # CONSTANTS
-NAMESPACE = "nrprediger"
+NAMESPACE = "pfsevaldt"
 MINIMUM_CPU = test_config['auction']['minimum_cpu']
 MINIMUM_BW = test_config['auction']['minimum_bw']
 MINIMUM_MEMORY = test_config['auction']['minimum_memory']

@@ -26,7 +26,7 @@ with open(TEST_CONFIG_PATH, "r") as f:
     test_config = yaml.safe_load(f)
 
 class QoETimeSeries:
-    def __init__(self, namespace="nrprediger", output_dir=test_config["monitoring"]["csv_output_dir"]):
+    def __init__(self, namespace="pfsevaldt", output_dir=test_config["monitoring"]["csv_output_dir"]):
         self.namespace = namespace
         self.output_dir = output_dir
         self.pod_prefix = "ue-video-"

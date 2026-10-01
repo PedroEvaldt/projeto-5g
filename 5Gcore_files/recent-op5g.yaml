@@ -4,7 +4,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: nrf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: nrf
     version: 2.7.6
@@ -43,7 +43,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: nrf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: nrf
 spec:
@@ -59,7 +59,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: nrf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: nrf
 data:
@@ -100,7 +100,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: amf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: amf
     version: 2.7.6
@@ -145,7 +145,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: amf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: amf
 spec:
@@ -169,7 +169,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: amf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: amf
 data:
@@ -266,7 +266,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: amf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: amf
 spec:
@@ -283,7 +283,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: smf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: smf
 spec:
@@ -315,7 +315,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: smf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: smf
 spec:
@@ -379,7 +379,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: smf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: smf
 data:
@@ -499,7 +499,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: smf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: smf
 spec:
@@ -516,7 +516,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: smf2
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: smf2
 spec:
@@ -548,7 +548,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: smf2
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: smf2
 spec:
@@ -610,7 +610,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: smf2
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: smf2
 data:
@@ -698,7 +698,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: smf2
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: smf2
 spec:
@@ -715,7 +715,7 @@ spec:
 # kind: Service
 # metadata:
 #   name: upf-gtp
-#   namespace: nrprediger
+#   namespace: pfsevaldt
 #   labels:
 #     app: upf
 # spec:
@@ -732,7 +732,7 @@ spec:
 # kind: Service
 # metadata:
 #   name: upf
-#   namespace: nrprediger
+#   namespace: pfsevaldt
 #   labels:
 #     app: upf
 # spec:
@@ -760,7 +760,7 @@ spec:
 # kind: Deployment
 # metadata:
 #   name: upf
-#   namespace: nrprediger
+#   namespace: pfsevaldt
 #   labels:
 #     app: upf
 # spec:
@@ -826,7 +826,7 @@ spec:
 # kind: ConfigMap
 # metadata:
 #   name: upf
-#   namespace: nrprediger
+#   namespace: pfsevaldt
 #   labels:
 #     app: upf
 # data:
@@ -945,7 +945,7 @@ spec:
 # kind: ServiceMonitor
 # metadata:
 #   name: upf
-#   namespace: nrprediger
+#   namespace: pfsevaldt
 #   labels:
 #     app: upf
 # spec:
@@ -962,7 +962,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: bsf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: bsf
 data:
@@ -993,7 +993,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: bsf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: bsf
 spec:
@@ -1009,7 +1009,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: bsf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: bsf
     version: 2.7.6
@@ -1051,7 +1051,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: ausf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: ausf
 spec:
@@ -1067,7 +1067,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ausf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: ausf
     version: 2.7.6
@@ -1107,7 +1107,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ausf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: ausf
 data:
@@ -1149,7 +1149,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: udm
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: udm
 spec:
@@ -1188,7 +1188,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: udm
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: udm
 spec:
@@ -1204,7 +1204,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: udm
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: udm
 data:
@@ -1264,7 +1264,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: udr
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: udr
 spec:
@@ -1280,7 +1280,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: udr
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: udr
 spec:
@@ -1318,7 +1318,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: udr
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: udr
 data:
@@ -1360,7 +1360,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: nssf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: nssf
 spec:
@@ -1376,7 +1376,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: nssf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: nssf
 spec:
@@ -1414,7 +1414,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: nssf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: nssf
 data:
@@ -1494,7 +1494,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: pcf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: pcf
 spec:
@@ -1514,7 +1514,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: pcf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: pcf
 spec:
@@ -1555,7 +1555,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: pcf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: pcf
 data:
@@ -1598,7 +1598,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: pcf
-  namespace: nrprediger
+  namespace: pfsevaldt
   labels:
     app: pcf
 spec:

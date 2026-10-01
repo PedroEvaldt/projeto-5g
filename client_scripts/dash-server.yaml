@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: dash-server
-  namespace: nrprediger  # <--- ADICIONE ISSO
+  namespace: pfsevaldt  # <--- ADICIONE ISSO
 spec:
   replicas: 1
   selector:
@@ -26,7 +26,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: dash-server-service
-  namespace: nrprediger  # <--- ADICIONE ISSO AQUI TAMBÉM
+  namespace: pfsevaldt  # <--- ADICIONE ISSO AQUI TAMBÉM
 spec:
   selector:
     app: dash-server

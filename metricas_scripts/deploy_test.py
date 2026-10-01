@@ -137,7 +137,7 @@ class TestOrchestrator:
     def pause_traffic(self, slice_name):
         """Pausa o tráfego de um slice matando temporariamente o container DASH."""
         try:
-            namespace = "nrprediger"
+            namespace = "pfsevaldt"
 
             target_pod_base = self.config['slices'][slice_name]['client_pod']
 
@@ -167,7 +167,7 @@ class TestOrchestrator:
     def resume_traffic(self, slice_name):
         """Retoma o tráfego de um slice."""
         try:
-            namespace = "nrprediger"
+            namespace = "pfsevaldt"
 
             target_pod_base = self.config['slices'][slice_name]['client_pod']
 

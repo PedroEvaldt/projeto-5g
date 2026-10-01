@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ================= CONFIGURAÇÕES =================
-NAMESPACE="nrprediger"
+NAMESPACE="pfsevaldt"
 NODE_NAME="blacksabbath"
 
 # A partir de qual número de servidor começar?

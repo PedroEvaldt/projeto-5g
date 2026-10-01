@@ -118,27 +118,27 @@ def collect_infra_data(input_dir):
         # ==========================================
         if upf_pod:
             # UPF CPU (Cores)
-            q_cpu = f'sum(irate(container_cpu_usage_seconds_total{{namespace="nrprediger", container=~"{upf_pod}.*"}}[{RATE_INTERVAL}]))'
+            q_cpu = f'sum(irate(container_cpu_usage_seconds_total{{namespace="pfsevaldt", container=~"{upf_pod}.*"}}[{RATE_INTERVAL}]))'
             cpu_data = extract_timeseries(query_prometheus(q_cpu, start_epoch, end_epoch), slice_name, 'UPF_CPU_Cores')
             if cpu_data: all_dfs.append(pd.DataFrame(cpu_data))
             
             # UPF Pacotes Recebidos (pps)
-            q_pktrx = f'sum(irate(container_network_receive_packets_total{{namespace="nrprediger", interface=~"{pods.get("dnn")}"}}[{RATE_INTERVAL}]))'
+            q_pktrx = f'sum(irate(container_network_receive_packets_total{{namespace="pfsevaldt", interface=~"{pods.get("dnn")}"}}[{RATE_INTERVAL}]))'
             pktrx_data = extract_timeseries(query_prometheus(q_pktrx, start_epoch, end_epoch), slice_name, 'UPF_Packets_RX')
             if pktrx_data: all_dfs.append(pd.DataFrame(pktrx_data))
 
             # UPF Pacotes Enviados (pps)
-            q_pkttx = f'sum(irate(container_network_transmit_packets_total{{namespace="nrprediger", interface=~"{pods.get("dnn")}"}}[{RATE_INTERVAL}]))'
+            q_pkttx = f'sum(irate(container_network_transmit_packets_total{{namespace="pfsevaldt", interface=~"{pods.get("dnn")}"}}[{RATE_INTERVAL}]))'
             pkttx_data = extract_timeseries(query_prometheus(q_pkttx, start_epoch, end_epoch), slice_name, 'UPF_Packets_TX')
             if pkttx_data: all_dfs.append(pd.DataFrame(pkttx_data))
             
             # UPF Tráfego Recebido (Kbps)
-            q_netrx = f'sum(irate(container_network_receive_bytes_total{{namespace="nrprediger", interface=~"{pods.get("dnn")}"}}[{RATE_INTERVAL}])) * 8 / 1000'
+            q_netrx = f'sum(irate(container_network_receive_bytes_total{{namespace="pfsevaldt", interface=~"{pods.get("dnn")}"}}[{RATE_INTERVAL}])) * 8 / 1000'
             netrx_data = extract_timeseries(query_prometheus(q_netrx, start_epoch, end_epoch), slice_name, 'UPF_RX_Kbps')
             if netrx_data: all_dfs.append(pd.DataFrame(netrx_data))
             
             # UPF Tráfego Enviado (Kbps)
-            q_nettx = f'sum(irate(container_network_transmit_bytes_total{{namespace="nrprediger", interface=~"{pods.get("dnn")}"}}[{RATE_INTERVAL}])) * 8 / 1000'
+            q_nettx = f'sum(irate(container_network_transmit_bytes_total{{namespace="pfsevaldt", interface=~"{pods.get("dnn")}"}}[{RATE_INTERVAL}])) * 8 / 1000'
             nettx_data = extract_timeseries(query_prometheus(q_nettx, start_epoch, end_epoch), slice_name, 'UPF_TX_Kbps')
             if nettx_data: all_dfs.append(pd.DataFrame(nettx_data))
             
@@ -147,12 +147,12 @@ def collect_infra_data(input_dir):
         # ==========================================
         if client_pod:
             # UE Tráfego Recebido (uesimtun0 - Kbps)
-            q_uerx = f'sum(irate(container_network_receive_bytes_total{{namespace="nrprediger", pod=~"{client_pod}.*", interface="uesimtun0"}}[{RATE_INTERVAL}])) * 8 / 1000'
+            q_uerx = f'sum(irate(container_network_receive_bytes_total{{namespace="pfsevaldt", pod=~"{client_pod}.*", interface="uesimtun0"}}[{RATE_INTERVAL}])) * 8 / 1000'
             uerx_data = extract_timeseries(query_prometheus(q_uerx, start_epoch, end_epoch), slice_name, 'UE_RX_Kbps')
             if uerx_data: all_dfs.append(pd.DataFrame(uerx_data))
             
             # UE Tráfego Enviado (uesimtun0 - Kbps)
-            q_uetx = f'sum(irate(container_network_transmit_bytes_total{{namespace="nrprediger", pod=~"{client_pod}.*", interface="uesimtun0"}}[{RATE_INTERVAL}])) * 8 / 1000'
+            q_uetx = f'sum(irate(container_network_transmit_bytes_total{{namespace="pfsevaldt", pod=~"{client_pod}.*", interface="uesimtun0"}}[{RATE_INTERVAL}])) * 8 / 1000'
             uetx_data = extract_timeseries(query_prometheus(q_uetx, start_epoch, end_epoch), slice_name, 'UE_TX_Kbps')
             if uetx_data: all_dfs.append(pd.DataFrame(uetx_data))
 

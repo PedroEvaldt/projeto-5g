@@ -8,7 +8,7 @@ TEST_CONFIG_PATH = os.getenv("TEST_FILE")
 with open(TEST_CONFIG_PATH, "r") as f:
     test_config = yaml.safe_load(f)
 # --- CONFIGURATION ---
-NAMESPACE = "nrprediger"
+NAMESPACE = "pfsevaldt"
 
 # Define your desired starting limits here
 INITIAL_CPU = test_config["initial_parameters"]["cpu"] 

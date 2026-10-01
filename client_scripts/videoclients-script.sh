@@ -2,7 +2,7 @@
 
 # ================= CONFIGURAÇÕES =================
 # Namespace do Kubernetes
-NAMESPACE="nrprediger"
+NAMESPACE="pfsevaldt"
 NODE_NAME="blacksabbath"
 # Configurações do Slice de Vídeo (Slice 01)
 SLICE_SST=1

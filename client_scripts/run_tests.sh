@@ -1,7 +1,7 @@
 #!/bin/bash
 # Script para rodar os testes de desempenho (iperf) e vídeo (dash-client)
 # Configurações
-NAMESPACE="nrprediger"
+NAMESPACE="pfsevaldt"
 TIMEOUT=450 # Tempo máximo para os pods ficarem prontos (em segundos)
 # Pega nome do teste da entrada do usuário
 read -p "Digite o nome do teste (ex: teste1): " TEST_NAME

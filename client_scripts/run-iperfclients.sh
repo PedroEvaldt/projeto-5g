@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ================= CONFIGURAÇÕES =================
-NAMESPACE="nrprediger"
+NAMESPACE="pfsevaldt"
 # array contendo o start_id para cada slice
 START_ID=(25 29 33 37 41 45)
 COUNT=1

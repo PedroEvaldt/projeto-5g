@@ -20,7 +20,7 @@ with open(TEST_CONFIG_PATH, "r") as f:
     test_config = yaml.safe_load(f)
 
 # CONSTANTS
-NAMESPACE = "nrprediger"
+NAMESPACE = "pfsevaldt"
 URL_PROMETHEUS = test_config['monitoring']['prometheus_url']
 BASE_BUDGET = test_config['bidding']['base_budget']
 BASE_INCOME = test_config['bidding']['base_income']
@@ -222,7 +222,7 @@ class SliceAgent(Agent):
             self.agent.budget += income
             self.agent.budget = min(self.agent.budget, max_budget)
     def prometheus_query(self, upf_name, resource):
-        # Query (Ex: rate(container_cpu_usage_seconds_total{namespace="nrprediger", pod=~"upf-.*", container="upf"}[1m]))
+        # Query (Ex: rate(container_cpu_usage_seconds_total{namespace="pfsevaldt", pod=~"upf-.*", container="upf"}[1m]))
         if resource == "cpu":
             query = self.prom.custom_query(f"rate(container_{resource}_usage_seconds_total{{namespace=\"{NAMESPACE}\", pod=~\"{upf_name}-.*\", container=\"{upf_name}\"}}[1m])")
             # Print the result

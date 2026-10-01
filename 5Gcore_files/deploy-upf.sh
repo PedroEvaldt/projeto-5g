@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ================= CONFIGURAÇÕES =================
-NAMESPACE="nrprediger"
+NAMESPACE="pfsevaldt"
 NODE_NAME="wb-fibre-01"
 
 # A partir de qual número de UPF começar?

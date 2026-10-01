@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ue-deletion-script
-  namespace: nrprediger
+  namespace: pfsevaldt
 data:
   delete-subscribers.js: |
     print("--- CONECTANDO AO BANCO OPEN5GS PARA LIMPEZA ---");
@@ -41,7 +41,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: delete-ues-job
-  namespace: nrprediger
+  namespace: pfsevaldt
 spec:
   ttlSecondsAfterFinished: 10 # O Job se auto-destrói 30s após terminar
   template:

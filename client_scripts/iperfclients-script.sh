@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ================= CONFIGURAÇÕES =================
-NAMESPACE="nrprediger"
+NAMESPACE="pfsevaldt"
 NODE_NAME="blacksabbath"
 # Configurações do Slice de Interferência (Slice 02)
 SLICE_SST=1

@@ -4,7 +4,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: dbctl
-  namespace: nrprediger
+  namespace: pfsevaldt
 spec:
   selector:
     matchLabels:
@@ -30,7 +30,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: mongodb
-  namespace: nrprediger
+  namespace: pfsevaldt
 spec:
   accessModes:
     - ReadWriteMany
@@ -42,7 +42,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: mongo
-  namespace: nrprediger
+  namespace: pfsevaldt
 spec:
   ports:
   - port: 27017
@@ -54,7 +54,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mongodb
-  namespace: nrprediger
+  namespace: pfsevaldt
 spec:
   selector:
     matchLabels:
