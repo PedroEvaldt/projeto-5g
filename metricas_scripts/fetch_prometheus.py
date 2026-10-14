@@ -62,7 +62,7 @@ def get_test_time_window(input_dir):
     
     # --- CORREÇÃO DO FUSO HORÁRIO ---
     # Informa ao Pandas que a hora lida no CSV está no fuso horário local de Portugal
-    df['Timestamp'] = df['Timestamp'].dt.tz_localize('Europe/Lisbon')
+    df['Timestamp'] = df['Timestamp'].dt.tz_localize('Etc/UTC')
     
     start_time_epoch = int(df['Timestamp'].min().timestamp())
     end_time_epoch = start_time_epoch + DURACAO_TESTE_SEGUNDOS

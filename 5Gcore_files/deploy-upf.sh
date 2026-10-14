@@ -7,7 +7,7 @@ NODE_NAME="wb-fibre-01"
 # A partir de qual número de UPF começar?
 START_ID=1
 # Quantos UPFs criar no total?
-COUNT=9
+COUNT=10
 # =================================================
 
 echo "--- Iniciando o Deploy Automático de UPFs ---"
@@ -259,5 +259,4 @@ spec:
 EOF
 
 done
-
 echo "--- Deploy concluído! ---"

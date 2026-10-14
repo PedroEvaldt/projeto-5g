@@ -1,0 +1,103 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ue-registration-script
+  namespace: pfsevaldt
+data:
+  add-subscribers.js: |
+    print("Conectando ao banco Open5GS...");
+    db = db.getSiblingDB('open5gs');
+
+    var start_imsi_suffix = 5;
+    var end_imsi_suffix = 6;
+    var mcc_mnc = "99970";
+    var slice_dnn = "slice03";
+    var slice_sst = 1;
+    var slice_sd = "000003";
+    
+    for (var i = start_imsi_suffix; i <= end_imsi_suffix; i++) {
+        var suffix = (i < 10 ? "0" + i : i); 
+        var imsi = mcc_mnc + "00000000" + suffix;
+
+        print("Processando IMSI com Tipagem Forte: " + imsi);
+
+        db.subscribers.remove({ "imsi": imsi });
+
+        db.subscribers.insert({
+            "ambr": { 
+                "downlink": { "value": NumberInt(1), "unit": NumberInt(3) }, 
+                "uplink":   { "value": NumberInt(1), "unit": NumberInt(3) } 
+            },
+            "schema_version": NumberInt(1),
+            "msisdn": [],
+            "imeisv": [],
+            "mme_host": [],
+            "mme_realm": [],
+            "purge_flag": [],
+            "access_restriction_data": NumberInt(32),
+            "subscriber_status": NumberInt(0),
+            "network_access_mode": NumberInt(0),
+            "subscribed_rau_tau_timer": NumberInt(12),
+            "imsi": imsi,
+            "security": {
+                "k": "465B5CE8 B199B49F AA5F0A2E E238A6BC",
+                "amf": "8000",
+                "op": null,
+                "opc": "E8ED289D EBA952E4 283B54E8 8E6183CA",
+            },
+            "slice": [
+                {
+                    "_id": new ObjectId(),
+                    "sst": NumberInt(slice_sst),              // <--- CRÍTICO: Deve ser Int32
+                    "default_indicator": true,
+                    "session": [
+                        {
+                            "qos": {
+                                "arp": {
+                                    "priority_level": NumberInt(8),
+                                    "pre_emption_capability": NumberInt(1),
+                                    "pre_emption_vulnerability": NumberInt(1)
+                                },
+                                "index": NumberInt(9)
+                            },
+                            "ambr": {
+                                "downlink": { "value": NumberInt(1), "unit": NumberInt(3) },
+                                "uplink":   { "value": NumberInt(1), "unit": NumberInt(3) }
+                            },
+                            "_id": new ObjectId(),
+                            "name": slice_dnn,
+                            "type": NumberInt(3),     // <--- CRÍTICO: Type 3 (IPv4v6)
+                            "pcc_rule": []
+                        }
+                    ],
+                    "sd": slice_sd
+                }
+            ],
+            "__v": NumberInt(0)
+        });
+    }
+    print("Sucesso. Tipos corrigidos.");
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: register-ues-job
+  namespace: pfsevaldt
+spec:
+  ttlSecondsAfterFinished: 5
+  template:
+    spec:
+      containers:
+      - name: mongo-client
+        image: mongo:4.4
+        command: ["mongo"]
+        args: ["mongodb://mongo:27017/open5gs", "/scripts/add-subscribers.js"]
+        volumeMounts:
+        - name: script-volume
+          mountPath: /scripts
+      volumes:
+      - name: script-volume
+        configMap:
+          name: ue-registration-script
+      restartPolicy: Never
