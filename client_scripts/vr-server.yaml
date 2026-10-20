@@ -1,0 +1,105 @@
+# Servidor de VR (PhotonPath) da fatia slice04, o par do dash-server para a VR.
+#
+# Para aplicar, da raiz do projeto-5g:
+#   python3 photonpath/tools/gen-configmap.py --namespace pfsevaldt --out /tmp/photonpath-cm.yaml   # empacota os .py do PhotonPath; o --out fora de photonpath/ é obrigatório
+#   kubectl apply -f /tmp/photonpath-cm.yaml                                                          # cria o ConfigMap "photonpath"
+#   kubectl create configmap vr-launcher -n pfsevaldt --from-file=vr/pp_launcher.py                  # cria o ConfigMap com o lançador
+#   kubectl apply -f client_scripts/vr-server.yaml                                                    # cria o Deployment e o Service vr-app-01
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vr-app-01
+  namespace: pfsevaldt
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vr-app-01
+  template:
+    metadata:
+      labels:
+        app: vr-app-01
+    spec:
+      # Mesmo nó do dash-server: depois da UPF, a VR faz o mesmo caminho que o vídeo.
+      nodeSelector:
+        kubernetes.io/hostname: blacksabbath
+      volumes:
+      - name: photonpath
+        configMap:
+          name: photonpath
+      - name: vr-launcher
+        configMap:
+          name: vr-launcher
+      containers:
+      - name: photon-server
+        image: python:3.12-slim
+        # O lançador troca o photon_clock.buffers pela via forçada e roda o photon_server.py de /opt/photonpath.
+        command: ["python3", "-u", "/opt/vr/pp_launcher.py", "photon_server.py"]
+        ports:
+        - name: udp-9100
+          protocol: UDP
+          containerPort: 9100
+        - name: metrics-9101
+          protocol: TCP
+          containerPort: 9101
+        env:
+        # Perfil vr8: 8 Mbps a 60 fps, pacotes espalhados em metade do intervalo do quadro, sem render.
+        - name: PP_BITRATE_MBPS
+          value: "8"
+        - name: PP_FPS
+          value: "60"
+        - name: PP_PACE_DUTY
+          value: "0.5"
+        - name: PP_RENDER_MS
+          value: "0"
+        - name: PP_MTU
+          value: "1200"
+        # Só rótulos nas métricas e no banner.
+        - name: PP_ROLE
+          value: "vr-app-01"
+        - name: PP_PROFILE
+          value: "vr8"
+        # requests = limits em CPU e memória: QoS Guaranteed. A CPU do servidor fica fixa,
+        # para que a variação medida venha da UPF (o que o leilão mexe), e não do gerador.
+        resources:
+          requests:
+            cpu: 300m
+            memory: 256Mi
+          limits:
+            cpu: 300m
+            memory: 256Mi
+        # NET_ADMIN libera o SO_RCVBUFFORCE/SO_SNDBUFFORCE: buffers de 16 MB acima do rmem_max do nó (212992).
+        securityContext:
+          capabilities:
+            add: ["NET_ADMIN"]
+        volumeMounts:
+        - name: photonpath
+          mountPath: /opt/photonpath
+          readOnly: true
+        - name: vr-launcher
+          mountPath: /opt/vr
+          readOnly: true
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 9101
+          initialDelaySeconds: 3
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vr-app-01
+  namespace: pfsevaldt
+spec:
+  selector:
+    app: vr-app-01
+  ports:
+  - name: udp-9100
+    protocol: UDP
+    port: 9100
+    targetPort: 9100
+  - name: metrics-9101
+    protocol: TCP
+    port: 9101
+    targetPort: 9101
