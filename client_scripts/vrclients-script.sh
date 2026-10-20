@@ -1,8 +1,9 @@
 #!/bin/bash
 # Clientes de VR (PhotonPath) na slice04 (upf4). Cópia do videoclients-script.sh:
-# os containers gnb e ue são os mesmos; o terceiro container é o vr-client.
-# Precisa dos ConfigMaps "photonpath" e "vr-launcher" (ver client_scripts/vr-server.yaml)
-# e do assinante registrado na slice04.
+# os containers gnb e ue são os mesmos; o terceiro container é o vr-client, que roda o vr/vr_exporter.py.
+# Precisa dos ConfigMaps "photonpath" e "vr-launcher" (ver client_scripts/vr-server.yaml),
+# do ConfigMap "vr-exporter" e do assinante registrado na slice04:
+#   kubectl create configmap vr-exporter -n pfsevaldt --from-file=vr/vr_exporter.py   # cria o ConfigMap com o exporter
 
 # ================= CONFIGURAÇÕES =================
 # Namespace do Kubernetes
@@ -167,6 +168,10 @@ spec:
         - name: vr-launcher
           configMap:
             name: vr-launcher
+        # O exporter, que roda o cliente em janelas e publica as métricas
+        - name: vr-exporter
+          configMap:
+            name: vr-exporter
       containers:
         # 1. Container da Torre (gNB)
         - name: gnb
@@ -212,7 +217,9 @@ spec:
               mountPath: /dev/net/tun
 
         # 3. Container do Cliente de VR (Aplicação)
-        # Por enquanto só espera: o photon_client é rodado à mão com kubectl exec.
+        # O vr_exporter.py roda o photon_client em janelas de 12 s, escreve uma linha por
+        # janela no log e publica a última em :9200/metrics. Pausa e retomada com
+        # kubectl exec ... -c vr-client -- kill -USR1 1 (pausa) / kill -USR2 1 (retoma).
         # Sem rota manual: o cliente usa --bind com o IP do uesimtun0, e a regra
         # de origem que o UERANSIM cria manda esse tráfego pelo túnel.
         - name: vr-client
@@ -222,13 +229,24 @@ spec:
           securityContext:
             capabilities:
               add: ["NET_ADMIN"]
-          command: ["sleep", "infinity"]
+          # Forma de lista, sem shell: o python é o PID 1 e recebe os sinais direto
+          command: ["python3", "-u", "/opt/vr-exporter/vr_exporter.py"]
+          env:
+            # Rótulo das métricas: a fatia deste script
+            - name: VR_SLICE
+              value: "${DNN}"
+          ports:
+            - name: metrics
+              containerPort: 9200
           volumeMounts:
             - name: photonpath
               mountPath: /opt/photonpath
               readOnly: true
             - name: vr-launcher
               mountPath: /opt/vr
+              readOnly: true
+            - name: vr-exporter
+              mountPath: /opt/vr-exporter
               readOnly: true
 EOF
 
