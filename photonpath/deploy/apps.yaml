@@ -1,0 +1,205 @@
+# Two PhotonPath servers: one on the edge and one far away.
+#
+# The whole point of running both is that they are identical. Same image,
+# same profile, same environment. The only thing that differs is WHERE the
+# traffic leaves the user plane, so any difference you measure between the
+# two belongs to the path and not to the workload.
+#
+# Before applying, edit:
+#   - the namespace (everywhere)
+#   - the nodeSelector on each Deployment
+#   - PP_BITRATE_MBPS / PP_FPS if you want a different profile
+#
+# Needs the ConfigMap first:
+#   python3 tools/gen-configmap.py --namespace <ns> --out deploy/configmap.yaml
+#   kubectl apply -f deploy/configmap.yaml -f deploy/apps.yaml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: edge-app
+  namespace: 5gcore
+  labels:
+    app: photonpath-edge
+spec:
+  selector:
+    photonpath: edge
+  ports:
+    - name: udp-9100
+      protocol: UDP
+      port: 9100
+      targetPort: 9100
+    - name: metrics-9101
+      protocol: TCP
+      port: 9101
+      targetPort: 9101
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: photonpath-edge
+  namespace: 5gcore
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      photonpath: edge
+  template:
+    metadata:
+      labels:
+        photonpath: edge
+        app: photonpath-edge
+    spec:
+      # Pin this pod to the node that hosts the edge UPF (the one doing the
+      # local breakout). If the edge application ends up on a different
+      # node than the UPF that breaks the traffic out, you are measuring a
+      # different topology than the one you think you are: the packet
+      # leaves the UPF and still crosses a wire to get here.
+      #
+      # Keep the RAN simulator OFF this node. A subscriber does not live
+      # inside the edge host, and on a small box the simulator will fight
+      # this process for cores. On a 100 Mbps profile here the server held
+      # only 53 of the 90 fps when it shared a node with the gNB and the UE.
+      nodeSelector:
+        kubernetes.io/hostname: CHANGE-ME-edge-node
+      volumes:
+        - name: photonpath
+          configMap:
+            name: photonpath
+      containers:
+        - name: photon-server
+          image: python:3.12-slim
+          command: ["python3", "-u", "/opt/photonpath/photon_server.py"]
+          ports:
+            - name: udp-9100
+              protocol: UDP
+              containerPort: 9100
+            - name: metrics-9101
+              protocol: TCP
+              containerPort: 9101
+          env:
+            - name: PP_ROLE
+              value: "edge"
+            - name: PP_PROFILE
+              value: "heavy"
+            - name: PP_BITRATE_MBPS
+              value: "50"
+            - name: PP_FPS
+              value: "90"
+            # 1200 B of UDP payload keeps the IP packet under the GTP-U
+            # tunnel MTU. Going above that gets you fragmentation inside
+            # the tunnel, which changes what you are measuring.
+            - name: PP_MTU
+              value: "1200"
+            - name: PP_RENDER_MS
+              value: "0"
+            # Uncomment to drive an external inference service alongside
+            # the VR load.
+            # - name: PP_AI_URL
+            #   value: "http://jetson.5gcore.svc.cluster.local:8080/infer"
+          volumeMounts:
+            - name: photonpath
+              mountPath: /opt/photonpath
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9101
+            initialDelaySeconds: 3
+            periodSeconds: 10
+---
+# The remote counterpart, on the other side of the transport network. It
+# is what proves the breakout is CLASSIFYING traffic instead of sending
+# everything to the edge: same UE, same PDU session, two destinations that
+# take different paths.
+#
+# Do not advertise this one to the core as an edge service, or it will get
+# broken out too and the contrast disappears.
+apiVersion: v1
+kind: Service
+metadata:
+  name: remote-app
+  namespace: 5gcore
+  labels:
+    app: photonpath-remote
+spec:
+  selector:
+    photonpath: remote
+  ports:
+    - name: udp-9100
+      protocol: UDP
+      port: 9100
+      targetPort: 9100
+    - name: metrics-9101
+      protocol: TCP
+      port: 9101
+      targetPort: 9101
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: photonpath-remote
+  namespace: 5gcore
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      photonpath: remote
+  template:
+    metadata:
+      labels:
+        photonpath: remote
+        app: photonpath-remote
+    spec:
+      # A node on the far side of the transport network. Avoid putting it
+      # on the same node as the anchor UPF: that would hand the remote path
+      # a free N6 hop that the edge path has to pay for.
+      #
+      # Check whether you have root on this node. If you cannot raise
+      # net.core.rmem_max/wmem_max here, the kernel grants ~416 kB against
+      # the 8 MB the server asks for, and the remote side is where UDP
+      # queue overflows show up first as the load goes up. Very different
+      # loss between the two paths invalidates the comparison: that is the
+      # buffer talking, not the topology.
+      nodeSelector:
+        kubernetes.io/hostname: CHANGE-ME-remote-node
+      volumes:
+        - name: photonpath
+          configMap:
+            name: photonpath
+      containers:
+        - name: photon-server
+          image: python:3.12-slim
+          command: ["python3", "-u", "/opt/photonpath/photon_server.py"]
+          ports:
+            - name: udp-9100
+              protocol: UDP
+              containerPort: 9100
+            - name: metrics-9101
+              protocol: TCP
+              containerPort: 9101
+          env:
+            # Same profile as the edge app. The only difference between the
+            # two paths has to be the path.
+            - name: PP_ROLE
+              value: "remote"
+            - name: PP_PROFILE
+              value: "heavy"
+            - name: PP_BITRATE_MBPS
+              value: "50"
+            - name: PP_FPS
+              value: "90"
+            - name: PP_MTU
+              value: "1200"
+            - name: PP_RENDER_MS
+              value: "0"
+          volumeMounts:
+            - name: photonpath
+              mountPath: /opt/photonpath
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9101
+            initialDelaySeconds: 3
+            periodSeconds: 10

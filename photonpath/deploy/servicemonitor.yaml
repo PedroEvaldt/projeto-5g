@@ -1,0 +1,40 @@
+# Optional. Only useful if you run the Prometheus Operator, since it needs
+# the monitoring.coreos.com CRDs. Without it you can still read the
+# generator's own counters by hand:
+#
+#   kubectl exec -n 5gcore deploy/photonpath-edge -- \
+#     python3 -c "import urllib.request;print(urllib.request.urlopen('http://localhost:9101/metrics').read().decode())"
+#
+# The label under `labels:` has to match the serviceMonitorSelector of your
+# Prometheus instance, otherwise it is quietly ignored.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: photonpath-edge
+  namespace: 5gcore
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: photonpath-edge
+  endpoints:
+    - interval: 15s
+      port: metrics-9101
+      path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: photonpath-remote
+  namespace: 5gcore
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: photonpath-remote
+  endpoints:
+    - interval: 15s
+      port: metrics-9101
+      path: /metrics
