@@ -9,7 +9,7 @@
 - 20/10/2026, Kubernetes 1.33.2, namespace `pfsevaldt`, UPFs no nó `wb-fibre-01` (cgroup v2, driver systemd).
 - UPF testada: `upf4` (nenhuma fatia de vídeo passa por ela). Os scripts devolvem o valor original no fim.
 - Os scripts aplicam **as mesmas chamadas do leiloeiro**: `patch_namespaced_pod_resize` com `requests = limits` (CPU) e `patch_namespaced_pod` nas anotações `ingressBandwidth`/`egressBandwidth` em "k" (banda).
-- Estado do cluster: as **10 UPFs** (upf1–10) estavam de pé no `wb-fibre-01`; depois do teste, decidiu-se deixar só as upf1–4 ligadas (ver CLAUDE.md, "Testbed"). **Não foi conferido** se havia um experimento rodando na ledzeppelin durante o teste; antes de repetir, confira com `tmux ls` lá.
+- Estado do cluster: as **10 UPFs** (upf1–10) estavam de pé no `wb-fibre-01`; elas continuam assim, com as upf5–10 paradas e reservadas para um teste futuro de interferência (ver CLAUDE.md, "Testbed"). **Não foi conferido** se havia um experimento rodando na ledzeppelin durante o teste; antes de repetir, confira com `tmux ls` lá.
 
 ```bash
 bash vr/subir_teste_banda.sh                  # assinante IMSI 08 na slice04, servidor iperf01 e UE ue-iperf-08 (só para a banda)
