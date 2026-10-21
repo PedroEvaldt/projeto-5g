@@ -9,9 +9,11 @@ janela em /metrics, no formato texto do Prometheus. Só usa a biblioteca padrão
 health mede o instrumento, não a rede: 1 quando o cliente rodou com carimbo do kernel, buffer
 forçado e sem descarte nos sockets do pod. Perda e continuidade ficam fora, porque são o
 efeito do leilão que se quer medir. Cliente que não chegou a medir (DNS, erro) ou servidor
-fora do ar dão health=0, e não contam como perda.
+fora do ar dão health=0, e não contam como perda. Se a medida parar por um erro não previsto,
+o processo sai com código 1 e o Kubernetes reinicia o container, em vez de o /metrics seguir
+servindo a última janela.
 
-Sinais (kubectl exec ... -c vr-client -- kill -USR1 1):
+Sinais (kubectl exec ... -c vr-client -- sh -c 'kill -USR1 1'; o kill é o do sh, a imagem slim não tem o programa):
   USR1  pausa: encerra a janela em andamento (descartada) e para de gerar tráfego
   USR2  retoma
   TERM  encerra o cliente e sai (sem tratador, o PID 1 ignoraria o TERM)
@@ -27,6 +29,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -157,6 +160,16 @@ def medir():
                 vr_throughput_mbps=s["dl_throughput_mbps"], vr_health_ok=ok, vr_paused=0)
 
 
+def medir_ou_sair():
+    """Roda a medida; se ela morrer por erro não previsto, derruba o processo inteiro."""
+    try:
+        medir()
+    except Exception:
+        traceback.print_exc()
+        print("[vr_exporter] a medida parou por erro; saindo para o Kubernetes reiniciar", flush=True)
+        os._exit(1)                                        # sys.exit numa thread só encerraria a thread
+
+
 class Metricas(BaseHTTPRequestHandler):
     def do_GET(self):
         with trava:
@@ -173,5 +186,5 @@ class Metricas(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     print(f"[vr_exporter] fatia={FATIA} servidor={SERVIDOR} janela={JANELA}s aquecimento={AQUECIMENTO}s "
           f"iface={IFACE} metrics=:{PORTA}", flush=True)
-    threading.Thread(target=medir, daemon=True).start()
+    threading.Thread(target=medir_ou_sair, daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", PORTA), Metricas).serve_forever()
