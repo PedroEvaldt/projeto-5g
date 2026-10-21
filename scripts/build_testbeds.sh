@@ -1,4 +1,10 @@
 #!/bin/bash
+# Sobe o testbed no namespace: banco, UPFs, core, assinantes, vídeo e VR.
+#
+# Uso:
+#   ./build_testbeds.sh            sobe tudo
+#   ./build_testbeds.sh --sem-vr   sobe tudo menos a VR (servidor e UE), como na v1.0-video;
+#                                  os assinantes 07 e 08 da slice04 são registrados mesmo assim
 
 set -euo pipefail
 
@@ -6,6 +12,14 @@ set -euo pipefail
 PROJECT_DIR="/home/pfsevaldt/dev/projeto-5g"
 NS=pfsevaldt
 TMP_DIR="$PROJECT_DIR/scripts/tmp"
+COM_VR=true
+
+for arg in "$@"; do
+    case "$arg" in
+        --sem-vr) COM_VR=false ;;
+        *) echo "Opção desconhecida: $arg"; exit 1 ;;
+    esac
+done
 
 check_pods() {
     sleep 2
@@ -22,7 +36,7 @@ check_pods() {
 }
 
 check_subscribers() {
-    local -A WANTED=([01]=000001 [02]=000001 [03]=000002 [04]=000002 [05]=000003 [06]=000003)
+    local -A WANTED=([01]=000001 [02]=000001 [03]=000002 [04]=000002 [05]=000003 [06]=000003 [07]=000004 [08]=000004)
     local status data format sufix expected
 
     data=$(kubectl exec -n "$NS" deploy/mongodb -- mongosh open5gs --quiet --eval '
@@ -44,7 +58,7 @@ check_subscribers() {
     while read -r imsi sd dnn; do
         sufix=${imsi: -2}
         expected=${WANTED[$sufix]:-}
-        if [[ -z expected ]]; then 
+        if [[ -z "$expected" ]]; then
             status="-"
         elif [[ "$sd" != "$expected" ]]; then
             status="WRONG (expected $expected)"
@@ -77,7 +91,8 @@ main() {
 
 
     echo Subindo assinantes
-    for f in "1 2 slice01 000001" "3 4 slice02 000002" "5 6 slice03 000003"; do
+    # 07 = VR e 08 = UE de iperf de teste, os dois na slice04 (upf4)
+    for f in "1 2 slice01 000001" "3 4 slice02 000002" "5 6 slice03 000003" "7 8 slice04 000004"; do
       set -- $f                                                # separa: início, fim, DNN e SD da fatia
       arq_registro="$TMP_DIR/registro-$3.yaml"
 
@@ -105,6 +120,20 @@ main() {
       bash "$arq_video"                                    # cria o ConfigMap e o Deployment do UE
     done
     check_pods             # os três têm de ficar Running, com 3/3 containers prontos
+
+    if $COM_VR; then
+      echo Subindo VR
+      python3 "$PROJECT_DIR/photonpath/tools/gen-configmap.py" --namespace "$NS" --out "$TMP_DIR/photonpath-cm.yaml"   # empacota os .py do PhotonPath; o --out fora de photonpath/ é obrigatório
+      kubectl apply -f "$TMP_DIR/photonpath-cm.yaml"           # ConfigMap "photonpath"
+      for cm in "vr-launcher vr/pp_launcher.py" "vr-exporter vr/vr_exporter.py"; do
+        set -- $cm                                             # separa: nome do ConfigMap e arquivo
+        kubectl create configmap "$1" -n "$NS" --from-file="$PROJECT_DIR/$2" --dry-run=client -o yaml | kubectl apply -f -   # cria ou atualiza o ConfigMap
+      done
+      kubectl apply -f "$PROJECT_DIR/client_scripts/vr-server.yaml"   # servidor de VR (vr-app-01), no nó blacksabbath
+      check_pods
+      bash "$PROJECT_DIR/client_scripts/vrclients-script.sh"   # UE de VR (ue-vr-07, slice04), com o exporter
+      check_pods
+    fi
 }
 
 main "$@"

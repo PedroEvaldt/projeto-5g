@@ -1,10 +1,10 @@
 #!/bin/bash
-# Apaga tudo que o subir_testbed.sh criou no namespace, na ordem inversa da subida.
+# Apaga tudo que o build_testbeds.sh criou no namespace, na ordem inversa da subida.
 #
 # Uso:
-#   ./derrubar_testbed.sh                 apaga tudo, inclusive o disco do MongoDB (os assinantes se perdem)
-#   ./derrubar_testbed.sh --manter-banco  apaga tudo, mas mantém o disco do MongoDB (os assinantes continuam lá na próxima subida)
-#   ./derrubar_testbed.sh -y              não pede confirmação (as duas opções podem ser combinadas)
+#   ./delete_testbeds.sh                 apaga tudo, inclusive o disco do MongoDB (os assinantes se perdem)
+#   ./delete_testbeds.sh --manter-banco  apaga tudo, mas mantém o disco do MongoDB (os assinantes continuam lá na próxima subida)
+#   ./delete_testbeds.sh -y              não pede confirmação (as duas opções podem ser combinadas)
 
 set -euo pipefail
 
@@ -44,6 +44,12 @@ main() {
         read -r -p "Continuar? [s/N] " resp
         [[ "$resp" == "s" || "$resp" == "S" ]] || { echo "Cancelado."; exit 0; }
     fi
+
+    echo "Apagando VR (cliente, servidor e ConfigMaps do código)"
+    delete_by_prefix deployment ue-vr-
+    delete_by_prefix configmap  config-vr-
+    kubectl delete -f "$PROJECT_DIR/client_scripts/vr-server.yaml" --ignore-not-found
+    kubectl delete configmap photonpath vr-launcher vr-exporter -n "$NS" --ignore-not-found
 
     echo "Apagando clientes de vídeo (e de iperf, se houver)"
     delete_by_prefix deployment ue-video-
