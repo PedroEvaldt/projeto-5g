@@ -81,7 +81,7 @@ main() {
     check_pods
 
     echo Subindo UPFs
-    bash "$PROJECT_DIR/5Gcore_files/deploy-upf.sh"                           # cria upf1 a upf9 no nó wb-fibre-01, com resize sem reinício e banda do Calico
+    bash "$PROJECT_DIR/5Gcore_files/deploy-upf.sh"                           # cria upf1 a upf10 no nó wb-fibre-01, com resize sem reinício e banda do Calico
     check_pods
 
     echo Subindo Core 5G
