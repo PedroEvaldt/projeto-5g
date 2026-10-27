@@ -5,8 +5,10 @@ guarda as janelas que o exporter escreve no log (linhas [VR]), uma linha de CSV 
 
 Uma medida (1 ponto, 1 repetição):
   1. pausa a VR (USR1): o exporter descarta a janela em andamento, que teria os dois valores;
-  2. aplica o valor na upf4 com o mesmo patch do resource_agent e espera valer;
-  3. retoma a VR (USR2) e lê do log as janelas escritas depois da retomada, até ter --janelas.
+  2. põe a upf4 na folga durante a pausa, para esvaziar a fila que a medida anterior deixou
+     (com 10m de CPU, a fila chega a ~11 s de atraso e passaria para a medida seguinte);
+  3. aplica o valor na upf4 com o mesmo patch do resource_agent e espera valer;
+  4. retoma a VR (USR2) e lê do log as janelas escritas depois da retomada, até ter --janelas.
 
 Varia um recurso por vez. O outro fica folgado, no topo da série dele: CPU de 0,4 núcleo na
 série de banda e banda de 15 Mbps na de CPU. Em cada repetição, os pontos vão numa ordem
@@ -46,10 +48,9 @@ ANOT_SAIDA = "qos.projectcalico.org/egressBandwidth"
 PONTOS = {"banda": [6, 8, 8.5, 9, 10, 12, 15],             # Mbps
           "cpu": [0.01, 0.02, 0.05, 0.1, 0.2, 0.4]}        # núcleos, múltiplos de 10m (ver Fase 1)
 UNIDADE = {"banda": "Mbps", "cpu": "núcleo"}
-CPU_FOLGADA = 0.4                                          # núcleo, durante a série de banda
-BANDA_FOLGADA = 15                                         # Mbps, durante a série de CPU
+FOLGA = {"banda": 15, "cpu": 0.4}                          # o topo de cada série: não aperta a VR
 
-PAUSA_S = 3              # depois do USR1: o servidor só para de mandar quando a sessão expira (2 s)
+PAUSA_S = 3              # pausa com a UPF na folga: a sessão antiga expira no servidor (2 s) e a fila esvazia
 ASSENTAR_BANDA_S = 2     # a anotação vale em menos de 1 s (Fase 1), mas o Calico não devolve status
 CICLO_S = 13             # uma janela do exporter: 12 s de cliente mais ~1 s até a próxima
 CAMPO = re.compile(r'(\w+)=("[^"]*"|\S+)')                 # chave=valor da linha [VR]
@@ -236,14 +237,12 @@ def main():
         csv.DictWriter(f, fieldnames=COLUNAS).writeheader()
 
     try:
-        # O outro recurso fica folgado, no topo da série dele
-        if args.recurso == "banda":
-            aplicar(v1, pod, "cpu", CPU_FOLGADA)
-        else:
-            aplicar(v1, pod, "banda", BANDA_FOLGADA)
+        outro = "cpu" if args.recurso == "banda" else "banda"
+        aplicar(v1, pod, outro, FOLGA[outro])              # o outro recurso fica folgado, no topo da série dele
 
         for i, (rep, valor) in enumerate(ordem, 1):
             sinal_vr(args.ue, "USR1")                      # pausa: a janela em andamento é descartada
+            aplicar(v1, pod, args.recurso, FOLGA[args.recurso])   # esvazia a fila que a medida anterior deixou
             time.sleep(PAUSA_S)
             aplicar(v1, pod, args.recurso, valor)
             cpu_m, banda = estado_upf(v1, pod)
