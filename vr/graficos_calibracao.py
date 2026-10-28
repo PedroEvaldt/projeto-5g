@@ -15,28 +15,51 @@ Janela sem quadros: atraso infinito (o fluxo parou), vazão 0 (o exporter não e
 nessa linha; algum pacote solto pode ter chegado) e sempre fora do SLA. Janela com health=0 é
 falha do instrumento, não da fatia, e fica de fora.
 
+Um SLA só para os dois recursos: o net_ref é a mediana do net_p95 nas janelas dos pontos de folga
+(os do FOLGA do calibrar.py). Se faltar o ponto de folga de um recurso, o script para, em vez de tirar
+o net_ref de um ponto que já está apertado.
+
+Com os CSVs dos dois recursos, grava também o vr/calibracao.yaml: o SLA por janela, os pisos (menor
+ponto que passa + 10%) e a conferência do pool do tests_configs/test_config.yaml. É dele que as Fases
+4 a 6 leem esses números.
+
 Rótulos em inglês, como as figuras do artigo (metricas_scripts/csv_graficos_ieee.py).
 
-Uso (da raiz do repositório), só com os CSVs que valem (ver o LEIAME.md da pasta de resultados):
+Uso (da raiz do repositório), com todos os CSVs que valem de uma vez (ver o LEIAME.md da pasta de resultados):
   venv/bin/python vr/graficos_calibracao.py metricas_scripts/resultados/calibracao/calib_cpu_20261027_184453.csv ...
 
-Saída: figuras/calib_<recurso>.pdf e .png, na pasta do primeiro CSV, e uma tabela por ponto no terminal.
+Saída: figuras/calib_<recurso>.pdf e .png, na pasta do primeiro CSV, uma tabela por ponto no terminal e,
+com os dois recursos, o vr/calibracao.yaml.
 """
 
 import argparse
+import math
 import os
+import sys
+from datetime import datetime
 
 import matplotlib.pyplot as plt
 import matplotlib.transforms as mtransforms
 import numpy as np
 import pandas as pd
+import yaml
 
 FLUXO_MBPS = 8.05                    # o fluxo inteiro do perfil vr8: 60 quadros/s × 14 pacotes × 1200 B
-SLA_NET_FOLGA_MS = 3                 # net_p95 ≤ net_ref + 3 ms; net_ref = net_p95 no ponto mais folgado
+SLA_NET_FOLGA_MS = 3                 # net_p95 ≤ net_ref + 3 ms
 SLA_PERDA_MAX = 1.0                  # %
 SLA_CONT_MIN = 98.0                  # %
-SLA_VAZAO_MIN = 0.95 * FLUXO_MBPS    # 7,65 Mbps: a perda e a continuidade não veem um fluxo que chega pingando
+SLA_VAZAO_MIN = round(0.95 * FLUXO_MBPS, 2)   # 7,65 Mbps: a perda e a continuidade não veem um fluxo que chega pingando
 SLA_JANELAS = 95.0                   # % de janelas no SLA que o piso exige
+
+FOLGA = {"cpu": 0.4, "banda": 15}    # o ponto sem aperto de cada série (o mesmo do calibrar.py): dele sai o net_ref
+MARGEM_PISO = 1.10                   # piso = menor ponto que passa + 10%
+# Piso arredondado para cima: a CPU em 10m, porque o systemd arredonda a cota assim de qualquer jeito
+# (docs/validacao-alavancas.md); a banda em 0,1 Mbps
+PASSO_PISO = {"cpu": 0.01, "banda": 0.1}
+VIDEOS = 3                           # fatias de vídeo que dividem o pool com a VR
+RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CONFIG = os.path.join(RAIZ, "tests_configs", "test_config.yaml")
+SAIDA_YAML = os.path.join(RAIZ, "vr", "calibracao.yaml")
 
 # t de Student bicaudal de 95%, por graus de liberdade (medidas - 1). Acima de 10, que não acontece
 # aqui, vale a aproximação normal.
@@ -81,12 +104,23 @@ def carregar(arquivos):
     return df
 
 
-def marcar_sla(df):
-    """Marca, por janela, se ela está dentro do SLA. Devolve o net_ref do recurso."""
-    net_ref = df.loc[df["valor"] == df["valor"].max(), "net"].median()   # o ponto mais folgado
+def calcular_net_ref(df):
+    """Mediana do net_p95 nas janelas dos pontos de folga de todos os recursos presentes."""
+    folga = pd.Series(False, index=df.index)
+    for recurso, valor in FOLGA.items():
+        folga |= (df["recurso"] == recurso) & np.isclose(df["valor"], valor)
+    faltando = sorted(set(df["recurso"]) - set(df.loc[folga, "recurso"]))
+    if faltando:
+        sys.exit(f"[ERRO] Falta o ponto de folga de {', '.join(faltando)} "
+                 f"({', '.join(f'{r} {FOLGA[r]:g}' for r in faltando)}). Sem ele, o net_ref sairia de um ponto "
+                 f"apertado. Passe também o CSV que tem esse ponto (a CPU de folga está no 184453).")
+    return df.loc[folga, "net"].median()
+
+
+def marcar_sla(df, net_ref):
+    """Marca, por janela, se ela está dentro do SLA."""
     df["no_sla"] = ((df["net"] <= net_ref + SLA_NET_FOLGA_MS) & (df["loss_pct"] <= SLA_PERDA_MAX)
                     & (df["cont_pct"] >= SLA_CONT_MIN) & (df["vazao"] >= SLA_VAZAO_MIN))
-    return net_ref
 
 
 def media_ic(x):
@@ -116,7 +150,15 @@ def por_ponto(df):
     return medidas, pd.DataFrame(linhas)
 
 
-def imprimir(recurso, pontos, net_ref):
+def menor_que_passa(pontos):
+    """O menor ponto a partir do qual todos os pontos acima também passam (None se nenhum).
+    Um ponto baixo que passasse por sorte, com um ponto acima dele reprovado, não conta."""
+    passa = (pontos["sla"] >= SLA_JANELAS).astype(int)
+    daqui_para_cima = passa[::-1].cummin()[::-1].astype(bool)
+    return float(pontos.loc[daqui_para_cima, "valor"].min()) if daqui_para_cima.any() else None
+
+
+def imprimir(recurso, pontos, net_ref, passou):
     """Tabela por ponto, pronta para o LEIAME, e o menor ponto que passa no SLA."""
     print(f"\n=== {recurso}: net_ref {net_ref:.2f} ms. SLA por janela: net_p95 ≤ {net_ref + SLA_NET_FOLGA_MS:.2f} ms, "
           f"perda ≤ {SLA_PERDA_MAX:g}%, continuidade ≥ {SLA_CONT_MIN:g}%, vazão ≥ {SLA_VAZAO_MIN:.2f} Mbps")
@@ -126,14 +168,62 @@ def imprimir(recurso, pontos, net_ref):
         net = "—" if np.isnan(p.net) else f"{p.net:.2f} ± {p.net_ic:.2f}"
         print(f"| {p.valor:g} | {p.medidas} | {p.janelas} ({p.sem_quadros}) | {net} "
               f"| {p.vazao:.2f} ± {p.vazao_ic:.2f} | {p.sla:.1f} ± {p.sla_ic:.1f} |")
-    # O menor ponto a partir do qual todos os pontos acima também passam: um ponto baixo que passasse por sorte não conta
-    passa = (pontos["sla"] >= SLA_JANELAS).astype(int)
-    daqui_para_cima = passa[::-1].cummin()[::-1].astype(bool)
-    if daqui_para_cima.any():
-        print(f"Menor ponto com ≥ {SLA_JANELAS:g}% das janelas no SLA (e todos acima dele): "
-              f"{pontos.loc[daqui_para_cima, 'valor'].min():g}")
+    if passou is not None:
+        print(f"Menor ponto com ≥ {SLA_JANELAS:g}% das janelas no SLA (e todos acima dele): {passou:g}")
     else:
-        print(f"Nenhum ponto tem ≥ {SLA_JANELAS:g}% das janelas no SLA.")
+        print(f"Nenhum ponto tem ≥ {SLA_JANELAS:g}% das janelas no SLA, com todos os de cima passando.")
+
+
+def piso_de(recurso, passou):
+    """Menor ponto que passa + 10%, arredondado para cima no passo do recurso."""
+    passo = PASSO_PISO[recurso]
+    # O round antes do ceil: em ponto flutuante, 0,2 × 1,1 dá 0,22000000000000003, e o ceil sozinho subiria para 0,23
+    return round(math.ceil(round(passou * MARGEM_PISO / passo, 6)) * passo, 2)
+
+
+def ler_pool():
+    """Mínimo do vídeo e total do pool de cada recurso, da seção auction do test_config.yaml."""
+    with open(CONFIG) as f:
+        leilao = yaml.safe_load(f)["auction"]
+    return {"cpu": (leilao["minimum_cpu"], leilao["total_cpu_pool"]),
+            "banda": (leilao["minimum_bw"], leilao["total_bw_pool"])}
+
+
+def escrever_yaml(caminho, csvs, net_ref, passou):
+    """O calibracao.yaml: o SLA por janela, os pisos e a conferência do pool, para as Fases 4 a 6."""
+    piso = {r: piso_de(r, passou[r]) for r in ("cpu", "banda")}
+    conta = {}
+    for r, (minimo, total) in ler_pool().items():
+        soma = round(piso[r] + VIDEOS * minimo, 2)
+        conta[r] = f"{{piso_mais_videos: {soma:g}, total: {total:g}, cabe: {str(soma <= total).lower()}}}"
+        if soma > total:
+            print(f"[AVISO] O piso de {r} não cabe no pool: {piso[r]:g} + {VIDEOS} × {minimo:g} = {soma:g} > {total:g}")
+
+    # (linha, comentário): o comentário fica alinhado numa coluna, para o arquivo ser lido por gente também
+    linhas = [
+        ("# Calibração da VR (Fase 3): SLA e pisos da fatia de VR na upf4.", None),
+        (f"# Gerado por vr/graficos_calibracao.py em {datetime.now():%Y-%m-%d %H:%M}. "
+         "Não editar à mão: rodar o script de novo.", None),
+        ("# Fontes (metricas_scripts/resultados/calibracao/, fora do git):", None),
+        *[(f"#   {os.path.basename(c)}", None) for c in csvs],
+        ("", None),
+        ("sla:", "por janela de 12 s; falhar em qualquer critério = fora do SLA"),
+        (f"  net_ref_ms: {net_ref:.2f}", "net_p95 sem aperto (pontos de folga: CPU 0,4 e banda 15)"),
+        (f"  folga_net_ms: {SLA_NET_FOLGA_MS:g}", f"net_p95 ≤ {net_ref + SLA_NET_FOLGA_MS:.2f} ms"),
+        (f"  perda_max_pct: {SLA_PERDA_MAX:g}", None),
+        (f"  cont_min_pct: {SLA_CONT_MIN:g}", None),
+        (f"  vazao_min_mbps: {SLA_VAZAO_MIN:g}", f"95% do fluxo de {FLUXO_MBPS:g} Mbps"),
+        ("piso:", f"menor ponto com ≥ {SLA_JANELAS:g}% das janelas no SLA (e todos acima dele), + 10%"),
+        (f"  cpu: {piso['cpu']:g}", f"passou em {passou['cpu']:g} núcleo; arredondado para cima em 10m"),
+        (f"  banda_mbps: {piso['banda']:g}", f"passou em {passou['banda']:g} Mbps; arredondado para cima em 0,1"),
+        ("pool:", f"piso + {VIDEOS} × mínimo do vídeo ≤ total (tests_configs/test_config.yaml, auction)"),
+        (f"  cpu: {conta['cpu']}", None),
+        (f"  banda_mbps: {conta['banda']}", None),
+    ]
+    with open(caminho, "w") as f:
+        for linha, comentario in linhas:
+            f.write(f"{linha:<34}# {comentario}\n" if comentario else f"{linha}\n")
+    print(f"\n[YAML] {caminho}: piso de CPU {piso['cpu']:g}, piso de banda {piso['banda']:g} Mbps")
 
 
 def figura(recurso, medidas, pontos, net_ref, pasta):
@@ -181,17 +271,25 @@ def main():
     ap = argparse.ArgumentParser(description="Fase 3: figuras da calibração da VR")
     ap.add_argument("csvs", nargs="+", help="CSVs do calibrar.py que valem (ver o LEIAME.md)")
     ap.add_argument("--saida", help="pasta das figuras (padrão: figuras/, na pasta do primeiro CSV)")
+    ap.add_argument("--yaml", default=SAIDA_YAML, help="onde gravar o calibracao.yaml (padrão: vr/calibracao.yaml)")
     args = ap.parse_args()
     pasta = args.saida or os.path.join(os.path.dirname(os.path.abspath(args.csvs[0])), "figuras")
 
     df = carregar(args.csvs)
+    net_ref = calcular_net_ref(df)
+    marcar_sla(df, net_ref)
+    passou = {}
     for recurso, d in df.groupby("recurso"):
-        d = d.copy()
-        net_ref = marcar_sla(d)
         medidas, pontos = por_ponto(d)
-        imprimir(recurso, pontos, net_ref)
+        passou[recurso] = menor_que_passa(pontos)
+        imprimir(recurso, pontos, net_ref, passou[recurso])
         figura(recurso, medidas, pontos, net_ref, pasta)
     print(f"\n[FIGURAS] {pasta}")
+
+    if set(passou) != {"cpu", "banda"} or None in passou.values():
+        print("[YAML] não gravado: precisa dos CSVs dos dois recursos, e de um ponto que passe em cada um")
+        return
+    escrever_yaml(args.yaml, args.csvs, net_ref, passou)
 
 
 if __name__ == "__main__":
