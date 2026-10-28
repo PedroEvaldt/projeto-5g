@@ -15,6 +15,10 @@ série de banda e banda de 15 Mbps na de CPU. Em cada repetição, os pontos vã
 sorteada de novo, para que uma mudança lenta no cluster não fique colada a um valor.
 O script não julga o SLA: só guarda os números. O SLA e os pisos saem da análise.
 
+A banda só limita de verdade com o burst dos experimentos (1M, o do upf_set_resources.py), e o
+script o aplica no começo. Sem a anotação de burst, o balde do Calico tem 4 Gibit, e a VR passa
+acima do limite por dezenas de minutos (série de banda de 27/10/2026, sem efeito nenhum).
+
 Antes de rodar: leilão desligado (nenhuma sessão exp_ no tmux), ue-vr-07 medindo com health=1
 e vídeos parados. Roda na ledzeppelin, numa sessão tmux.
 
@@ -23,8 +27,8 @@ Uso (da raiz do repositório):
   venv/bin/python vr/calibrar.py --recurso cpu            # 6 pontos × 5 repetições (~65 min)
   venv/bin/python vr/calibrar.py --recurso cpu --pontos 0.01 0.4 --repeticoes 1 --janelas 2   # teste curto
 
-No fim, mesmo com Ctrl+C ou erro, a upf4 volta para a CPU (request e limit) e a banda que
-tinha antes, e a VR é retomada.
+No fim, mesmo com Ctrl+C ou erro, a upf4 volta para a CPU (request e limit), a banda e o burst
+que tinha antes, e a VR é retomada.
 """
 
 import argparse
@@ -44,6 +48,9 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAIDA_PADRAO = os.path.join(REPO, "metricas_scripts", "resultados", "calibracao")
 ANOT_ENTRADA = "qos.projectcalico.org/ingressBandwidth"
 ANOT_SAIDA = "qos.projectcalico.org/egressBandwidth"
+ANOT_BURST_ENTRADA = "qos.projectcalico.org/ingressBurst"
+ANOT_BURST_SAIDA = "qos.projectcalico.org/egressBurst"
+BURST = "1M"             # o do spade_agents/upf_set_resources.py, que todo experimento aplica no começo
 
 PONTOS = {"banda": [6, 8, 8.5, 9, 10, 12, 15],             # Mbps
           "cpu": [0.01, 0.02, 0.05, 0.1, 0.2, 0.4]}        # núcleos, múltiplos de 10m (ver Fase 1)
@@ -57,7 +64,7 @@ CAMPO = re.compile(r'(\w+)=("[^"]*"|\S+)')                 # chave=valor da linh
 
 COLUNAS = ["recurso", "valor", "unidade", "repeticao", "medida", "janela", "hora", "tipo",
            "m2p_p95_ms", "net_p95_ms", "hold_p95_ms", "loss_pct", "cont_pct", "thr_mbps", "ctx_inv",
-           "health", "cpu_aplicado_m", "banda_anotada", "detalhe"]
+           "health", "cpu_aplicado_m", "banda_anotada", "burst_anotado", "detalhe"]
 
 
 # --- Copiadas de vr/validar_cpu.py e vr/validar_banda.py (Fase 1): as mesmas chamadas do leiloeiro ---
@@ -118,11 +125,12 @@ def aplicar(v1, pod, recurso, valor):
 
 
 def estado_upf(v1, pod):
-    """O que está valendo na UPF: a CPU que o kubelet aplicou (m) e a anotação de banda de saída."""
+    """O que está valendo na UPF: a CPU que o kubelet aplicou (m) e as anotações de banda e de burst de saída."""
     p = v1.read_namespaced_pod(name=pod, namespace=NAMESPACE)
     cs = p.status.container_statuses[0]
     cpu = para_mili(((cs.resources and cs.resources.limits) or {}).get("cpu"))
-    return cpu, (p.metadata.annotations or {}).get(ANOT_SAIDA)
+    anot = p.metadata.annotations or {}
+    return cpu, anot.get(ANOT_SAIDA), anot.get(ANOT_BURST_SAIDA)
 
 
 def devolver(v1, pod, original):
@@ -193,8 +201,10 @@ def checar_antes(ue):
     if exp:
         raise SystemExit(f"[ERRO] Experimento rodando no tmux ({', '.join(exp)}): o leilão mexeria na UPF.")
     ultimas = janelas_do_log(ue, 50)
-    if not ultimas or ultimas[-1].get("health") != "1":
-        raise SystemExit(f"[ERRO] A última janela da VR não tem health=1: {ultimas[-1] if ultimas else 'nenhuma janela'}")
+    if not ultimas:                                        # retomada recente (ex.: fim da série anterior): espera a 1ª janela
+        ultimas = coletar(ue, 1)
+    if ultimas[-1].get("health") != "1":
+        raise SystemExit(f"[ERRO] A última janela da VR não tem health=1: {ultimas[-1]}")
 
 
 def main():
@@ -220,14 +230,17 @@ def main():
     pod = pods[0].metadata.name
     rec = pods[0].spec.containers[0].resources
     anot = pods[0].metadata.annotations or {}
-    original = {"cpu_request": rec.requests["cpu"], "cpu_limit": rec.limits["cpu"],
-                "banda": {ANOT_ENTRADA: anot.get(ANOT_ENTRADA), ANOT_SAIDA: anot.get(ANOT_SAIDA)}}
+    original = {"cpu_request": rec.requests["cpu"], "cpu_limit": rec.limits["cpu"],     # None numa anotação: ela não
+                "banda": {k: anot.get(k) for k in (ANOT_ENTRADA, ANOT_SAIDA,          # existia, e o patch do fim a remove
+                                                   ANOT_BURST_ENTRADA, ANOT_BURST_SAIDA)}}
+    burst_original = original["banda"][ANOT_BURST_SAIDA] or "padrão do Calico (4 Gibit)"
 
     # Ordem intercalada: cada repetição passa por todos os pontos, numa ordem sorteada de novo
     ordem = [(rep, valor) for rep in range(1, args.repeticoes + 1) for valor in random.sample(pontos, len(pontos))]
     minutos = len(ordem) * (args.janelas * CICLO_S + 20) / 60
     print(f"[INIT] {pod}: CPU {original['cpu_request']}/{original['cpu_limit']} (request/limit), "
-          f"banda {original['banda'][ANOT_SAIDA]}. {len(ordem)} medidas de {args.janelas} janelas, ~{minutos:.0f} min.")
+          f"banda {original['banda'][ANOT_SAIDA]}, burst {burst_original}. "
+          f"{len(ordem)} medidas de {args.janelas} janelas, ~{minutos:.0f} min.")
     for rep in range(1, args.repeticoes + 1):
         print(f"[ORDEM] rep {rep}: " + " ".join(f"{v:g}" for r, v in ordem if r == rep))
 
@@ -237,6 +250,8 @@ def main():
         csv.DictWriter(f, fieldnames=COLUNAS).writeheader()
 
     try:
+        v1.patch_namespaced_pod(name=pod, namespace=NAMESPACE, body={"metadata": {"annotations": {
+            ANOT_BURST_ENTRADA: BURST, ANOT_BURST_SAIDA: BURST}}})   # o burst dos experimentos: sem ele, a banda não limita
         outro = "cpu" if args.recurso == "banda" else "banda"
         aplicar(v1, pod, outro, FOLGA[outro])              # o outro recurso fica folgado, no topo da série dele
 
@@ -245,7 +260,7 @@ def main():
             aplicar(v1, pod, args.recurso, FOLGA[args.recurso])   # esvazia a fila que a medida anterior deixou
             time.sleep(PAUSA_S)
             aplicar(v1, pod, args.recurso, valor)
-            cpu_m, banda = estado_upf(v1, pod)
+            cpu_m, banda, burst = estado_upf(v1, pod)
             sinal_vr(args.ue, "USR2")                      # retoma: a próxima janela já começa com o valor novo
             janelas = coletar(args.ue, args.janelas)
 
@@ -254,13 +269,13 @@ def main():
                 for n, j in enumerate(janelas, 1):
                     w.writerow({**j, "recurso": args.recurso, "valor": f"{valor:g}", "unidade": unidade,
                                 "repeticao": rep, "medida": i, "janela": n,
-                                "cpu_aplicado_m": cpu_m, "banda_anotada": banda})
+                                "cpu_aplicado_m": cpu_m, "banda_anotada": banda, "burst_anotado": burst})
             print(f"[{i}/{len(ordem)}] {args.recurso} {valor:g} {unidade} rep {rep}: {resumo(janelas)}", flush=True)
     finally:
         devolver(v1, pod, original)
         sinal_vr(args.ue, "USR2", check=False)             # se parou no meio de uma pausa
-        print(f"[FIM] {pod} devolvida para CPU {original['cpu_request']}/{original['cpu_limit']} e banda "
-              f"{original['banda'][ANOT_SAIDA]}; VR retomada.")
+        print(f"[FIM] {pod} devolvida para CPU {original['cpu_request']}/{original['cpu_limit']}, banda "
+              f"{original['banda'][ANOT_SAIDA]} e burst {burst_original}; VR retomada.")
         print(f"[CSV] {arquivo}")
 
 
