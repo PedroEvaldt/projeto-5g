@@ -13,7 +13,7 @@
 - Leilão desligado (nenhuma sessão `exp_` no tmux da ledzeppelin) e vídeos parados.
 - Só a VR, com uma sessão do perfil vr8: 60 quadros/s × 14 pacotes de 1200 B = 8,05 Mbps.
 - A `upf4` foi fixada à mão pelo `vr/calibrar.py`, com as mesmas chamadas do leiloeiro: resize com `requests = limits` e as anotações do Calico.
-- No fim, o script devolve o estado original. No template, isso é 150m/100m de CPU, 15M de banda e nenhum burst. O estado foi conferido depois das séries.
+- No fim, o script devolve o estado original. No template, isso é CPU com limit de 150m (request de 100m), 15M de banda e nenhum burst. O estado foi conferido depois das séries.
 
 ```bash
 venv/bin/python vr/calibrar.py --recurso banda                                        # banda: 7 pontos × 5 repetições (~75 min)
@@ -79,7 +79,7 @@ CPU fixa em 0,4. A figura é a `calib_banda.pdf`.
   O total é ~8,8 Mbps. Com 8,5, entra mais do que sai, e a fila enche; com 9, sobram ~2%. O plano esperava o degrau perto de 9 Mbps.
 - **É um precipício:** de 9 para 8,5 Mbps, o atraso vai de 1,87 para 721 ms. Não há faixa intermediária.
 - **Em 6 Mbps, a sessão quase não sobrevive.** A primeira janela de cada medida entrega ~5,4 Mbps, com 5,8 s de atraso. Depois, janelas sem quadros se alternam com janelas de ~1,7 Mbps e 32% de continuidade.
-- **Em aberto:** os segundos de atraso em 6 e 8 Mbps. A fila do limitador é curta: se o Calico seguir o plugin bandwidth do CNI, são 25 ms mais o burst, ~0,2 s em 6 Mbps. Os segundos vêm de outro lugar, ainda não identificado. O piso não muda, porque esses pontos falham de qualquer jeito.
+- **Em aberto:** os segundos de atraso em 6 e 8 Mbps. A fila do limitador é curta: se o Calico seguir o plugin bandwidth do CNI, são 25 ms mais o burst, ~0,2 s em 6 Mbps. Os segundos vêm de outro lugar, ainda não identificado. Uma pista: em 8 Mbps, as 5 medidas, em ordem sorteada, deram 3 973 ± 2,4 ms. Um atraso tão repetível sugere um limite de tamanho fixo (um buffer de tantos bytes, por exemplo), e não congestionamento aleatório. O piso não muda, porque esses pontos falham de qualquer jeito.
 
 ## CPU
 
