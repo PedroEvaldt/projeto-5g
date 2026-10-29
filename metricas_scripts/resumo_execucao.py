@@ -135,9 +135,10 @@ if vr is not None:
     contam = janelas[janelas["Health"] == 1]               # health=0 é falha do instrumento: fora da conta
     normais = contam[contam["Window_Type"] == "normal"]
 
-    print()
+    if qoe is not None or leilao is not None:               # separa das seções de cima, se houver
+        print()
     print("=" * 120)
-    print(f"4. VR ({', '.join(vr['Slice'].dropna().unique())}): janelas de ~12,6 s, SLA do vr/calibracao.yaml, sem deslocamento")
+    print(f"4. VR ({', '.join(vr['Slice'].dropna().unique())}): janelas de ~12.6 s, SLA do vr/calibracao.yaml, sem deslocamento")
     print("=" * 120)
     tipos = ", ".join(f"{n} {t}" for t, n in janelas["Window_Type"].value_counts().items())
     print(f"Janelas: {len(janelas)} ({tipos}); fora da conta (health=0): {len(janelas) - len(contam)}")
@@ -168,8 +169,8 @@ if vr is not None:
         t = contam["Timestamp_Offset_Seconds"]
         trecho = contam[(t >= ini) & (t < fim)]
         linhas.append({"fase": f"{ini:.0f}-{fim:.0f}s", "começou com": abertura, "janelas": len(trecho),
-                       "no SLA": f"{100 * trecho['SLA_OK'].mean():.0f}%" if len(trecho) else "—",
-                       "net mediano (ms)": f"{trecho['Net_p95_ms'].median():.2f}" if trecho["Net_p95_ms"].notna().any() else "—"})
+                       "no_sla": f"{100 * trecho['SLA_OK'].mean():.0f}%" if len(trecho) else "—",
+                       "net_mediano_ms": f"{trecho['Net_p95_ms'].median():.2f}" if trecho["Net_p95_ms"].notna().any() else "—"})
     print(pd.DataFrame(linhas).to_string(index=False))
 
     # 4c. Cada entrada (marca de retomada): tempo até a 1ª janela no SLA. Marca e janelas vêm do mesmo relógio
