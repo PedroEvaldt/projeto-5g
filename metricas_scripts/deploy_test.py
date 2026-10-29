@@ -201,7 +201,10 @@ class TestOrchestrator:
         print("=" * 70 + "\n")
 
         self.start_time = datetime.now()
-        self.log_event("TEST_START", "Teste iniciado", f"Config: {self.config_file}")
+        # A hora real do início, com fuso: o coletor da VR (analise_metricas_vr.py) precisa dela para levar as
+        # janelas do log do pod para a régua dos eventos
+        inicio = self.start_time.astimezone().isoformat(timespec="milliseconds")
+        self.log_event("TEST_START", "Teste iniciado", f"Config: {self.config_file} | inicio={inicio}")
 
         try:
             if self.config['events']:
