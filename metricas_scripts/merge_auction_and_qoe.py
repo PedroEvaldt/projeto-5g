@@ -254,6 +254,10 @@ class DataCorrelator:
             alloc['t'] = (ts - pd.to_datetime(auction_df['Timestamp']).min()).dt.total_seconds()
         for col in ['CPU_Allocated', 'BW_Allocated']:
             alloc[col] = pd.to_numeric(alloc[col], errors='coerce')
+        # The auctioneer keeps running until the tmux session is closed: keep only the rounds of the test
+        test_end = events_df.loc[events_df['Event_Type'] == 'TEST_END', 'Timestamp_Offset_Seconds'] if events_df is not None else []
+        if len(test_end):
+            alloc = alloc[alloc['t'] <= float(test_end.iloc[0])]
         return alloc[['t', 'CPU_Allocated', 'BW_Allocated']].sort_values('t')
 
     def create_vr_timeline(self, vr_df, events_df, alloc):
