@@ -7,6 +7,8 @@
 - **Banda:** precipício entre 8,5 e 9 Mbps, logo acima do que a VR ocupa na saída da `upf4` (~8,8 Mbps).
 - **CPU:** a vazão só quebra abaixo de ~0,13 núcleo, mas o atraso só volta ao normal em 0,2. Entre os dois, o limite do CFS congela a UPF por pedaços de cada período de 100 ms.
 
+> **Atualização da Fase 4 (30/10/2026):** os números deste doc valem para a VR sozinha. Com os 3 vídeos tocando, a `upf4` precisa de mais CPU, e o piso de CPU do `calibracao.yaml` passou a **0,28 núcleo**. O 0,22 ficou só como referência. O SLA e o piso de banda não mudaram. Ver `docs/coleta-vr.md`.
+
 ## Ambiente
 
 - 27 e 28/10/2026, namespace `pfsevaldt`. `ue-vr-07` e `vr-app-01` no `blacksabbath`, `upf4` no `wb-fibre-01`.
