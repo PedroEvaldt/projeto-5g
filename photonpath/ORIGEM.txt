@@ -10,12 +10,17 @@ O que foi copiado: o repositório inteiro naquele commit, sem o .git.
 Nenhum arquivo foi alterado (conferido com diff -r contra o clone original).
 
 Regras
-- Não editar nada nesta pasta. Mudanças de comportamento ficam em vr/
-  (ex.: o lançador que troca photon_clock.buffers pela via forçada SO_RCVBUFFORCE).
+- Esta pasta pode ser alterada quando houver motivo válido (decisão do Pedro, 30/10/2026).
+  Cada alteração entra na lista abaixo (arquivo, o que mudou e por quê), num commit próprio,
+  para a cópia continuar comparável com o original. Quando der, prefira mudar o comportamento
+  de fora, em vr/ (ex.: o lançador que troca photon_clock.buffers pela via forçada SO_RCVBUFFORCE).
 - Para atualizar: copiar de novo a partir de um commit novo do repositório do Carlos,
-  trocar o commit acima e explicar o motivo num commit próprio.
+  trocar o commit acima, refazer as alterações da lista e explicar o motivo num commit próprio.
 
-Conferir se a cópia continua intacta (da raiz do projeto-5g):
+Alterações em relação ao original
+- nenhuma até agora
+
+Conferir a cópia (da raiz do projeto-5g):
   git clone https://github.com/CarlosMenin/photonpath /tmp/pp      # baixa o repositório original
   git -C /tmp/pp checkout 7291c4b                                   # volta para o commit copiado
-  diff -rq --exclude=.git --exclude=ORIGEM.txt /tmp/pp photonpath   # não deve imprimir nada
+  diff -rq --exclude=.git --exclude=ORIGEM.txt /tmp/pp photonpath   # só pode listar os arquivos da lista de alterações
