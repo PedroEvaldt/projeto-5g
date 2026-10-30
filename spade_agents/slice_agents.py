@@ -14,6 +14,8 @@ from kubernetes import client, config
 from prometheus_api_client import PrometheusConnect
 from dotenv import load_dotenv
 
+import agente_vr
+
 load_dotenv()
 TEST_CONFIG_PATH = os.getenv("TEST_FILE")
 with open(TEST_CONFIG_PATH, "r") as f:
@@ -26,6 +28,7 @@ BASE_BUDGET = test_config['bidding']['base_budget']
 BASE_INCOME = test_config['bidding']['base_income']
 BASE_BID = test_config['bidding']['base_bid']
 MONITORING_PERIOD = test_config['auction']['monitoring_period_seconds']
+CALIBRACAO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vr", "calibracao.yaml")   # SLA and floor of the VR (Phase 6)
 
 HIGH_STRESS_THRESHOLD = test_config['bidding']['high_stress_threshold']
 MODERATE_STRESS_THRESHOLD = test_config['bidding']['moderate_stress_threshold']
@@ -75,7 +78,10 @@ class SliceAgent(Agent):
                         self.agent.memory_limit = msg_data["new_mem"]
                         print(f"[{self.agent.name}] Received Memory adjustment. New Memory limit: {self.agent.memory_limit}Mi.")
                 
-                if msg.get_metadata("performative") == "cfp":
+                if msg.get_metadata("performative") == "cfp" and self.agent.bids_by_sla:
+                    await self.agent.propose_by_sla(self, msg)     # Phase 6: the VR slice in L2 (VRSliceAgent)
+
+                if msg.get_metadata("performative") == "cfp" and not self.agent.bids_by_sla:
                     print(f"[{self.agent.name}] CFP receveid from Resource Agent. Calculating bid...")
                     # 1. Calculate utilization based on current CPU usage and CPU limit
                     cpu_usage = self.agent.cpu_usage
@@ -315,8 +321,129 @@ class SliceAgent(Agent):
         self.add_behaviour(self.ResourceMonitoring(period=MONITORING_PERIOD))
         self.add_behaviour(self.AuctionParticipant())
         return await super().setup()
+
+    bids_by_sla = False     # the utilization bid above; VRSliceAgent (Phase 6) bids by SLA
+
+
+class VRSliceAgent(SliceAgent):
+    """Phase 6 (L2, vr.agent: sla): the VR slice bids by how close the VR is to leaving its SLA, not by utilization
+    (agente_vr.decidir). Same messages and wallet as SliceAgent. Every monitoring period it reads the last VR window
+    and the upf4 throttling from Prometheus, and the current upf4 limits from Kubernetes (what is really applied,
+    even if someone changed it by hand)."""
+    bids_by_sla = True
+
+    class VRMonitoring(PeriodicBehaviour):
+        async def run(self):
+            ag = self.agent
+            ag.vr_metrics = await asyncio.to_thread(ag.read_vr_metrics)
+            limits = await asyncio.to_thread(ag.read_upf_limits)
+            if limits:
+                ag.cpu_limit, ag.bandwidth_limit = limits
+            # Wallet: the same as the utilization agent
+            ag.budget = min(ag.budget + ag.income, 200.0)
+
+    def read_vr_metrics(self):
+        """The last VR window (vr_exporter.py, scraped by the ServiceMonitor) and the upf4 throttling; None if missing."""
+        sel = f'namespace="{NAMESPACE}", pod=~"{self.client_pod}-.*"'
+        names = {"paused": "vr_paused", "health": "vr_health_ok", "net_ms": "vr_net_p95_us", "cont_pct": "vr_continuity_pct",
+                 "perda_pct": "vr_loss_pct", "vazao_mbps": "vr_throughput_mbps"}
+        try:
+            m = {}
+            for key, name in names.items():
+                result = self.prom.custom_query(f"{name}{{{sel}}}")
+                if not result:
+                    return None
+                m[key] = float(result[0]['value'][1])
+            m["net_ms"] /= 1000
+            m["paused"], m["health"] = int(m["paused"]), int(m["health"])
+            up = f'namespace="{NAMESPACE}", container="{self.upf_target}"'
+            thr = self.prom.custom_query(f"sum(rate(container_cpu_cfs_throttled_periods_total{{{up}}}[1m])) / "
+                                         f"sum(rate(container_cpu_cfs_periods_total{{{up}}}[1m]))")
+            value = float(thr[0]['value'][1]) if thr else 0.0
+            m["throttling"] = value if value == value else 0.0      # NaN (no periods yet) -> 0
+            return m
+        except Exception as e:
+            print(f"[{self.name}] [ERROR] Failed to read the VR metrics from Prometheus: {e}")
+            return None
+
+    def read_upf_limits(self):
+        """(CPU applied by the kubelet, egress bandwidth annotation in Mbps) of the UPF, or None."""
+        try:
+            pod = self.v1.list_namespaced_pod(namespace=NAMESPACE, label_selector=f"app={self.upf_target}").items[0]
+            cpu = pod.status.container_statuses[0].resources.limits["cpu"]
+            cpu = float(cpu[:-1]) / 1000 if cpu.endswith("m") else float(cpu)
+            bw = (pod.metadata.annotations or {}).get("qos.projectcalico.org/egressBandwidth", "")
+            scale = {"k": 1 / 1000, "M": 1.0, "G": 1000.0}
+            bw = float(bw[:-1]) * scale[bw[-1]] if bw and bw[-1] in scale else self.bandwidth_limit
+            return cpu, bw
+        except Exception as e:
+            print(f"[{self.name}] [ERROR] Failed to read the {self.upf_target} limits: {e}")
+            return None
+
+    async def propose_by_sla(self, behaviour, msg):
+        decision = agente_vr.decidir(self.vr_metrics, {"cpu": self.cpu_limit, "bw": self.bandwidth_limit}, self.vr_floor,
+                                     self.vr_sla, self.base_bid, self.budget, self.last_decision, self.vr_params)
+        self.last_decision = decision
+        print(f"[{self.name}] SLA bid: {decision['situacao']} (d={decision['d']:.2f}). Requesting CPU: {decision['cpu_alvo']}, "
+              f"BW: {decision['bw_alvo']}Mbps. Bidding {decision['lance']}.")
+        self.log_decision(decision)
+        reply = Message(to=str(msg.sender))
+        reply.set_metadata("performative", "propose")
+        reply.body = json.dumps({
+            "bid": decision["lance"],
+            "cpu_target": decision["cpu_alvo"],
+            "cpu_limit": self.cpu_limit,
+            "memory_target": self.memory_limit,
+            "memory_limit": self.memory_limit,
+            "memory_usage": self.memory_usage,
+            "bw_target": decision["bw_alvo"],
+            "bw_limit": self.bandwidth_limit,
+            "upf_target": self.upf_target
+        })
+        await behaviour.send(reply)
+
+    def log_decision(self, decision):
+        """One row per bid in vr_decisoes.csv, next to the auction_history.csv: why the VR bid what it bid."""
+        path = test_config['monitoring']['csv_output_dir'] + "vr_decisoes.csv"
+        m = self.vr_metrics or {}
+        new = not os.path.exists(path)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a") as f:
+            if new:
+                f.write("Timestamp,Situacao,D,Bid,CPU_Limit,CPU_Target,BW_Limit,BW_Target,Net_p95_ms,Throttling,Paused,Health\n")
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')},{decision['situacao']},{decision['d']:.3f},{decision['lance']:.2f},"
+                    f"{self.cpu_limit:.3f},{decision['cpu_alvo']:.3f},{self.bandwidth_limit:.2f},{decision['bw_alvo']:.2f},"
+                    f"{m.get('net_ms', '')},{m.get('throttling', '')},{m.get('paused', '')},{m.get('health', '')}\n")
+
+    async def setup(self):
+        print(f"[{self.name}] VR Slice Agent (SLA bid) starting...")
+        self.fetch_initial_limits()
+        self.cpu_usage = 0.0
+        self.memory_usage = 0.0
+        self.bandwidth_usage = 0.0
+        self.vr_metrics, self.last_decision = None, None
+        config.load_kube_config()
+        self.v1 = client.CoreV1Api()
+        self.prom = PrometheusConnect(url=URL_PROMETHEUS, disable_ssl=True)
+        self.add_behaviour(self.VRMonitoring(period=MONITORING_PERIOD))
+        self.add_behaviour(self.AuctionParticipant())
+        print(f"[{self.name}] SLA {self.vr_sla} | floor {self.vr_floor} | parameters {self.vr_params}")
+        return await Agent.setup(self)      # SliceAgent.setup would add the utilization monitoring
+
+
+def vr_settings(slice_info):
+    """SLA and floor of the VR (vr/calibracao.yaml; the slice may override floor_cpu/floor_bw) and the SLA agent
+    parameters (vr.sla_agent in the YAML; defaults in agente_vr.PARAMETROS)."""
+    with open(CALIBRACAO) as f:
+        calib = yaml.safe_load(f)
+    floor = {"cpu": float(slice_info.get('floor_cpu', calib['piso']['cpu'])),
+             "bw": float(slice_info.get('floor_bw', calib['piso']['banda_mbps']))}
+    params = {**agente_vr.PARAMETROS, **((test_config.get('vr') or {}).get('sla_agent') or {})}
+    return calib['sla'], floor, params
+
+
 async def main():
-    
+
     # 1. Define the 1-10 Tiers
     PRIORITY_TIERS = {
         slice_name: {
@@ -326,20 +453,26 @@ async def main():
         for slice_name, slice_info in test_config['slices'].items()
     }
 
-    # VR slices (tipo: vr, Phase 5) bid with the same utilization agent (L0, L1); the SLA agent (L2) is Phase 6
+    # VR slices (tipo: vr): vr.agent utilizacao = the same agent as the video (L0, L1); sla = VRSliceAgent (L2, Phase 6)
     vr_agent = (test_config.get('vr') or {}).get('agent', 'utilizacao')
-    if any(s.get('tipo') == 'vr' for s in test_config['slices'].values()) and vr_agent != 'utilizacao':
-        raise SystemExit(f"[ERROR] vr.agent: {vr_agent} is not available yet (the SLA agent is Phase 6). Use vr.agent: utilizacao.")
+    if any(s.get('tipo') == 'vr' for s in test_config['slices'].values()) and vr_agent not in ('utilizacao', 'sla'):
+        raise SystemExit(f"[ERROR] vr.agent: {vr_agent} is not valid. Use vr.agent: utilizacao or sla.")
 
     # 2. Create Slice Agents for each tier
     slice_agents = []
 
     for tier_name, config in PRIORITY_TIERS.items():
-        
+
         w = config["weight"]
         agent_jid = f"{tier_name}_slice@localhost"
-        
-        agent = SliceAgent(agent_jid, "password")
+
+        slice_info = test_config['slices'][tier_name]
+        if slice_info.get('tipo') == 'vr' and vr_agent == 'sla':
+            agent = VRSliceAgent(agent_jid, "password")
+            agent.client_pod = slice_info['client_pod']
+            agent.vr_sla, agent.vr_floor, agent.vr_params = vr_settings(slice_info)
+        else:
+            agent = SliceAgent(agent_jid, "password")
         agent.upf_target = config["upf"]
         
         # --- THE FORMULAS ---
