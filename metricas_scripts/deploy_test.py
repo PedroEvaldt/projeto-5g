@@ -62,6 +62,23 @@ class IntentNotifierAgent(Agent):
         self.add_behaviour(behaviour)
         await behaviour.join()
 
+    class SendPerformative(OneShotBehaviour):
+        """Mensagem com performative (Fase 5): o aviso de VR_JOIN/VR_LEAVE para o leiloeiro."""
+        def __init__(self, target_jid, performative, body):
+            super().__init__()
+            self.target_jid, self.performative, self.body = target_jid, performative, body
+
+        async def run(self):
+            msg = Message(to=self.target_jid)
+            msg.set_metadata("performative", self.performative)
+            msg.body = self.body
+            await self.send(msg)
+
+    async def send_performative(self, target_jid, performative, body):
+        behaviour = self.SendPerformative(target_jid, performative, body)
+        self.add_behaviour(behaviour)
+        await behaviour.join()
+
     async def setup(self):
         print(f"[{self.name}] Intent Notifier pronto.")
 
@@ -193,6 +210,38 @@ class TestOrchestrator:
             print(f"[ERROR] Falha ao retomar tráfego: {e}")
             self.log_event("TRAFFIC_RESUME_ERROR", f"Erro ao retomar {slice_name}", str(e))
 
+    def sinal_vr(self, slice_name, sinal):
+        """USR2 retoma e USR1 pausa o exporter da VR (PID 1 do vr-client; o kill é o do sh). Devolve o erro ou ''."""
+        client_pod = self.config['slices'][slice_name]['client_pod']
+        cmd = ["kubectl", "exec", "-n", "pfsevaldt", f"deploy/{client_pod}", "-c", "vr-client", "--",
+               "sh", "-c", f"kill -{sinal} 1"]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        return r.stderr.strip() if r.returncode != 0 else ""
+
+    async def vr_event(self, slice_name, entrar, description):
+        """VR_JOIN / VR_LEAVE (Fase 5): retoma ou pausa a VR e avisa o leiloeiro pelo XMPP. Com o piso ligado,
+        o leiloeiro aplica o piso da VR na hora (rodada extra) na entrada, e o libera na saída."""
+        tipo = "VR_JOIN" if entrar else "VR_LEAVE"
+        try:
+            erro = await asyncio.to_thread(self.sinal_vr, slice_name, "USR2" if entrar else "USR1")
+            client_pod = self.config['slices'][slice_name]['client_pod']
+            if erro:
+                self.log_event(f"{tipo}_FAIL", f"Sinal para a VR em {slice_name} falhou", erro)
+                return
+            self.log_event(tipo, description, f"pods={client_pod}")
+            await self.notifier.send_performative("resource_agent@localhost", tipo.lower(), json.dumps({"fatia": slice_name}))
+        except Exception as e:
+            print(f"[ERROR] Falha no {tipo} de {slice_name}: {e}")
+            self.log_event(f"{tipo}_ERROR", f"Erro no {tipo} de {slice_name}", str(e))
+
+    async def retomar_vr(self):
+        """No fim do teste, retoma as VRs pausadas, para o testbed voltar ao normal (a VR medindo sempre).
+        Não avisa o leiloeiro: o teste acabou."""
+        for nome, s in self.config['slices'].items():
+            if s.get('tipo') == 'vr':
+                erro = await asyncio.to_thread(self.sinal_vr, nome, "USR2")
+                print(f"[VR] {nome} retomada no fim do teste" + (f" (falhou: {erro})" if erro else ""))
+
     async def run(self):
         """Executa o teste seguindo os eventos programados."""
         print("\n" + "=" * 70)
@@ -229,16 +278,21 @@ class TestOrchestrator:
                     elif event_type == "traffic_resume":
                         self.resume_traffic(event['resume_slice'])
 
+                    elif event_type in ("vr_join", "vr_leave"):
+                        await self.vr_event(event['vr_slice'], event_type == "vr_join", description)
+
             # Aguarda até o fim do teste
             total_duration = self.config['test_metadata']['duration_seconds']
             while (datetime.now() - self.start_time).total_seconds() < total_duration:
                 await asyncio.sleep(5)
 
             self.log_event("TEST_END", "Teste finalizado", "")
+            await self.retomar_vr()
             print("\n[SUCESSO] Teste concluído!")
 
         except KeyboardInterrupt:
             self.log_event("TEST_INTERRUPTED", "Teste interrompido pelo usuário", "")
+            await self.retomar_vr()
             print("\n[INTERROMPIDO] Teste cancelado.")
 
         except Exception as e:
