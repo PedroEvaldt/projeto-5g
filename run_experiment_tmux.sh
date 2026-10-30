@@ -41,7 +41,10 @@ yaml.safe_dump(c, open(out, "w"), allow_unicode=True, sort_keys=False)
 print(c["monitoring"]["csv_output_dir"])
 PYEOF
 )
-PODS=$("$PY" -c "import yaml,sys; c=yaml.safe_load(open(sys.argv[1])); print(' '.join('deployment/'+s['client_pod'] for s in c['slices'].values()))" "$CFG")
+# Só os clientes de vídeo são reiniciados: reiniciar o UE de VR registraria o IMSI dele duas vezes (Fase 5)
+PODS=$("$PY" -c "import yaml,sys; c=yaml.safe_load(open(sys.argv[1])); print(' '.join('deployment/'+s['client_pod'] for s in c['slices'].values() if s.get('tipo', 'video') != 'vr'))" "$CFG")
+# O UE de VR, se o cenário tiver (tipo: vr): o log dele é copiado durante a execução e analisado no fim
+VR_POD=$("$PY" -c "import yaml,sys; c=yaml.safe_load(open(sys.argv[1])); print(next((s['client_pod'] for s in c['slices'].values() if s.get('tipo') == 'vr'), ''))" "$CFG")
 DURACAO=$("$PY" -c "import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))['test_metadata']['duration_seconds'])" "$CFG")
 
 PASTA_LOCAL="metricas_scripts/${OUT_DIR#../metricas_scripts/}"
@@ -53,6 +56,7 @@ fi
 echo "Configuração desta execução: $CFG"
 echo "Resultados em: $PASTA_LOCAL"
 echo "Clientes que serão reiniciados: $PODS"
+[ -n "$VR_POD" ] && echo "VR: $VR_POD (não é reiniciado; o log vai para $PASTA_LOCAL/vr_log.txt)"
 
 # Comando comum a todas as janelas: usa o YAML desta execução e ativa o venv
 ENV=". '$REPO/venv/bin/activate'; export TEST_FILE='$CFG'"
@@ -74,8 +78,18 @@ echo "3/6 Estrategista (janela llm) e leiloeiro (janela leilao)"; sleep 1
 kubectl rollout restart $PODS -n "$NS"
 echo "4/6 Clientes reiniciados; aguardando 20 s"; sleep 20
 
+# VR (Fase 5): copia o log do exporter durante a execução, para a análise não depender do pod depois
+DEPOIS_EVENTOS=""
+if [ -n "$VR_POD" ]; then
+    mkdir -p "$REPO/$PASTA_LOCAL"
+    tmux new-window -t "$SESSAO" -n vrlog "kubectl logs -f --timestamps --since=1s deploy/$VR_POD -c vr-client -n $NS > '$REPO/$PASTA_LOCAL/vr_log.txt'"
+    echo "   Cópia do log da VR (janela vrlog)"
+    # Quando o deploy_test.py termina (TEST_END gravado), o coletor da VR gera o qoe_vr_timeseries.csv
+    DEPOIS_EVENTOS="python3 analise_metricas_vr.py '$OUT_DIR';"
+fi
+
 # 6. Orquestrador de eventos e, 40 s depois, o coletor de QoE
-tmux new-window -t "$SESSAO" -n eventos "$ENV; cd '$REPO/metricas_scripts' && python3 deploy_test.py; exec bash"
+tmux new-window -t "$SESSAO" -n eventos "$ENV; cd '$REPO/metricas_scripts' && python3 deploy_test.py; $DEPOIS_EVENTOS exec bash"
 echo "5/6 Orquestrador de eventos (janela eventos); aguardando 40 s"; sleep 40
 tmux new-window -t "$SESSAO" -n qoe "$ENV; cd '$REPO/metricas_scripts' && python3 analise_metricas_timeseries.py 5 $((DURACAO - 40)); exec bash"
 echo "6/6 Coletor de QoE (janela qoe)"
@@ -87,3 +101,6 @@ Tudo iniciado. O teste dura ~$((DURACAO / 60)) min a partir de agora.
   Encerrar:    tmux kill-session -t $SESSAO   (só quando a janela qoe mostrar "[SUCESSO] Coleta finalizada")
   Depois:      veja o guia COMO-RODAR.md, parte "Depois de cada execução"
 EOF
+if [ -n "$VR_POD" ]; then
+    echo "  VR:          antes de encerrar, espere também o [CSV] do coletor da VR na janela eventos"
+fi
