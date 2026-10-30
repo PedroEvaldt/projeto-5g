@@ -48,6 +48,8 @@ main() {
     echo "Apagando VR (cliente, servidor e ConfigMaps do código)"
     delete_by_prefix deployment ue-vr-
     delete_by_prefix configmap  config-vr-
+    delete_by_prefix service    ue-vr-                                          # o Service da porta 9200 (Fase 4)
+    delete_by_prefix servicemonitor ue-vr- 2>/dev/null || true                  # pode não haver permissão ou CRD; não é motivo para parar
     kubectl delete -f "$PROJECT_DIR/client_scripts/vr-server.yaml" --ignore-not-found
     kubectl delete configmap photonpath vr-launcher vr-exporter -n "$NS" --ignore-not-found
 

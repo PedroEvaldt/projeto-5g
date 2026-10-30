@@ -249,6 +249,39 @@ spec:
             - name: vr-exporter
               mountPath: /opt/vr-exporter
               readOnly: true
+
+# Service e ServiceMonitor da porta 9200 (Fase 4): o Prometheus coleta as métricas da VR
+# (vr_net_p95_us, vr_paused...), que o agente de VR da Fase 6 lê. Mesmo padrão das UPFs (deploy-upf.sh).
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${POD_NAME}-metrics
+  namespace: ${NAMESPACE}
+  labels:
+    app: ${POD_NAME}
+spec:
+  selector:
+    app: ${POD_NAME}
+  ports:
+    - name: metrics
+      port: 9200
+      targetPort: metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ${POD_NAME}
+  namespace: ${NAMESPACE}
+  labels:
+    app: ${POD_NAME}
+spec:
+  selector:
+    matchLabels:
+      app: ${POD_NAME}
+  endpoints:
+  - interval: 5s
+    port: metrics
 EOF
 
 done
