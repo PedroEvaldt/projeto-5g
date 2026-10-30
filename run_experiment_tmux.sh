@@ -45,6 +45,7 @@ PYEOF
 PODS=$("$PY" -c "import yaml,sys; c=yaml.safe_load(open(sys.argv[1])); print(' '.join('deployment/'+s['client_pod'] for s in c['slices'].values() if s.get('tipo', 'video') != 'vr'))" "$CFG")
 # O UE de VR, se o cenário tiver (tipo: vr): o log dele é copiado durante a execução e analisado no fim
 VR_POD=$("$PY" -c "import yaml,sys; c=yaml.safe_load(open(sys.argv[1])); print(next((s['client_pod'] for s in c['slices'].values() if s.get('tipo') == 'vr'), ''))" "$CFG")
+VR_FATIA=$("$PY" -c "import yaml,sys; c=yaml.safe_load(open(sys.argv[1])); print(next((n for n, s in c['slices'].items() if s.get('tipo') == 'vr'), ''))" "$CFG")
 DURACAO=$("$PY" -c "import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))['test_metadata']['duration_seconds'])" "$CFG")
 
 PASTA_LOCAL="metricas_scripts/${OUT_DIR#../metricas_scripts/}"
@@ -56,7 +57,7 @@ fi
 echo "Configuração desta execução: $CFG"
 echo "Resultados em: $PASTA_LOCAL"
 echo "Clientes que serão reiniciados: $PODS"
-[ -n "$VR_POD" ] && echo "VR: $VR_POD (não é reiniciado; o log vai para $PASTA_LOCAL/vr_log.txt)"
+[ -n "$VR_POD" ] && echo "VR: fatia $VR_FATIA, $VR_POD (não é reiniciado; o log vai para $PASTA_LOCAL/vr_log.txt)"
 
 # Comando comum a todas as janelas: usa o YAML desta execução e ativa o venv
 ENV=". '$REPO/venv/bin/activate'; export TEST_FILE='$CFG'"
@@ -85,7 +86,7 @@ if [ -n "$VR_POD" ]; then
     tmux new-window -t "$SESSAO" -n vrlog "kubectl logs -f --timestamps --since=1s deploy/$VR_POD -c vr-client -n $NS > '$REPO/$PASTA_LOCAL/vr_log.txt'"
     echo "   Cópia do log da VR (janela vrlog)"
     # Quando o deploy_test.py termina (TEST_END gravado), o coletor da VR gera o qoe_vr_timeseries.csv
-    DEPOIS_EVENTOS="python3 analise_metricas_vr.py '$OUT_DIR';"
+    DEPOIS_EVENTOS="python3 analise_metricas_vr.py '$OUT_DIR' --pod $VR_POD --fatia $VR_FATIA;"
 fi
 
 # 6. Orquestrador de eventos e, 40 s depois, o coletor de QoE

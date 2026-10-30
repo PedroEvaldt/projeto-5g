@@ -68,11 +68,12 @@ CORES = {
     'silver': '#555555',    # cinza escuro (o cinza claro original sumia)
     'bronze': '#8c510a',
     'vr': '#6a3d9a',        # roxo: longe dos tons de ouro/cinza/bronze do vídeo
+    'drone': '#6a3d9a',     # a VR do cenário SC-VR (Fase 7): a mesma cor da VR
 }
 # nomes de exibição (Português no CSV -> rótulo em inglês para o artigo)
 DISPLAY = {
     'ambulancia': 'Ambulance', 'bombeiros': 'Firefighters', 'policia': 'Police',
-    'gold': 'Gold', 'silver': 'Silver', 'bronze': 'Bronze', 'vr': 'VR',
+    'gold': 'Gold', 'silver': 'Silver', 'bronze': 'Bronze', 'vr': 'VR', 'drone': 'Drone (VR)',
 }
 
 DURACAO_TESTE_NOMINAL = 900
