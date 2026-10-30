@@ -1,9 +1,10 @@
-# Calibração da VR (Fase 3): SLA e pisos da fatia de VR na upf4.
-# Gerado por vr/graficos_calibracao.py em 2026-10-28 14:59. Não editar à mão: rodar o script de novo.
+# Calibração da VR (Fases 3 e 4): SLA e pisos da fatia de VR na upf4.
+# Gerado por vr/graficos_calibracao.py em 2026-10-30 09:34. Não editar à mão: rodar o script de novo.
 # Fontes (metricas_scripts/resultados/calibracao/, fora do git):
 #   calib_cpu_20261027_184453.csv
 #   calib_cpu_20261028_133110.csv
 #   calib_banda_20261028_121544.csv
+#   calib_cpu_20261030_104624.csv  (com os 3 vídeos tocando)
 
 sla:                              # por janela de 12 s; falhar em qualquer critério = fora do SLA
   net_ref_ms: 1.87                # net_p95 sem aperto (pontos de folga: CPU 0,4 e banda 15)
@@ -11,9 +12,10 @@ sla:                              # por janela de 12 s; falhar em qualquer crit�
   perda_max_pct: 1
   cont_min_pct: 98
   vazao_min_mbps: 7.65            # 95% do fluxo de 8.05 Mbps
-piso:                             # menor ponto com ≥ 95% das janelas no SLA (e todos acima dele), + 10%
-  cpu: 0.22                       # passou em 0.2 núcleo; arredondado para cima em 10m
-  banda_mbps: 9.9                 # passou em 9 Mbps; arredondado para cima em 0,1
+piso:                             # menor ponto que passa (e todos acima dele), + 10%
+  cpu: 0.28                       # com os 3 vídeos: rende o mesmo que a folga desde 0.25 núcleo; para cima em 10m
+  cpu_sem_video: 0.22             # só referência (VR sozinha, Fase 3): ≥ 95% das janelas desde 0.2
+  banda_mbps: 9.9                 # ≥ 95% das janelas desde 9 Mbps; para cima em 0,1
 pool:                             # piso + 3 × mínimo do vídeo ≤ total (tests_configs/test_config.yaml, auction)
-  cpu: {piso_mais_videos: 0.25, total: 0.8, cabe: true}
+  cpu: {piso_mais_videos: 0.31, total: 0.8, cabe: true}
   banda_mbps: {piso_mais_videos: 12.9, total: 35, cabe: true}
