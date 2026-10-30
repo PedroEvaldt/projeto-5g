@@ -104,7 +104,7 @@ São as duas fraquezas do agente por utilização que o plano previa para L0 e L
 ## Limites
 
 - **Uma execução em cada condição.** Os números mostram o mecanismo, não uma estatística.
-- **O leiloeiro segue rodando depois do `TEST_END`**, até a sessão do tmux ser fechada. As análises têm de olhar só as rodadas do teste. O gráfico da VR do `merge` já faz isso; o resumo ainda não.
+- **O leiloeiro segue rodando depois do `TEST_END`**, até a sessão do tmux ser fechada, e começa ~30 s antes do `TEST_START`. As análises têm de olhar só as rodadas do teste. O gráfico da VR do `merge` e a seção 3 do `resumo_execucao.py` já fazem isso (o resumo, só nas execuções com `inicio=`; as antigas ficam como eram). A figura do artigo (`csv_graficos_ieee.py`) corta pelo tempo desde a 1ª rodada, como sempre fez.
 - **As linhas `FLOOR_*` entram na média por período** da figura do artigo (`csv_graficos_ieee.py`), junto com as rodadas daquele período.
 - **A cópia do `run_experiment_tmux.sh` em `../../Docs` ficou velha.** A do repositório é a que vale.
 
@@ -118,5 +118,4 @@ São as duas fraquezas do agente por utilização que o plano previa para L0 e L
   Junto com a ideia da Fase 4 (usar o throttling da `upf4` para saber se CPU resolve).
 - **Fase 8:**
   - a L1 já dá a comparação "custo para o vídeo": o bitrate do gold caiu de ~11 para ~5 Mbps;
-  - falta o YAML da L0;
-  - o resumo deve contar só as rodadas do teste.
+  - falta o YAML da L0.

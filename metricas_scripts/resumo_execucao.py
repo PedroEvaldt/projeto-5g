@@ -110,6 +110,19 @@ if leilao is not None:
     print("=" * 120)
     for col in ["Bid_Value", "Price_Paid", "CPU_Allocated", "BW_Allocated"]:
         leilao[col] = pd.to_numeric(leilao[col], errors="coerce")
+    # Só as rodadas do teste: o leiloeiro segue rodando depois do TEST_END, até a sessão do tmux ser fechada.
+    # Precisa da hora real do início (inicio=, desde a Fase 4); execuções antigas ficam como sempre foram.
+    detalhes = eventos.loc[eventos["Event_Type"] == "TEST_START", "Details"].astype(str)
+    achou = detalhes.str.extract(r"inicio=(\S+)", expand=False).dropna()
+    if len(achou):
+        inicio = pd.Timestamp(achou.iloc[0]).tz_localize(None)        # o leiloeiro grava a hora local da mesma máquina, sem fuso
+        fim_ev = pd.to_numeric(eventos.loc[eventos["Event_Type"] == "TEST_END", "Timestamp_Offset_Seconds"], errors="coerce")
+        fim = inicio + pd.Timedelta(seconds=float(fim_ev.iloc[0]) if len(fim_ev) else 900.0)
+        hora = pd.to_datetime(leilao["Timestamp"])
+        total = leilao["Auction_ID"].nunique()
+        leilao = leilao[(hora >= inicio) & (hora <= fim)]
+        print(f"Só as rodadas do teste: {leilao['Auction_ID'].nunique()} de {total} no arquivo "
+              f"(as outras são de antes do início ou de depois do fim)\n")
     res = leilao.groupby("Agent").agg(
         rodadas=("Auction_ID", "nunique"),
         vitorias=("Result", lambda r: (r == "WINNER").sum()),
