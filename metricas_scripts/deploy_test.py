@@ -27,6 +27,7 @@ import spade
 from spade.agent import Agent
 from spade.behaviour import OneShotBehaviour
 from spade.message import Message
+from spade.template import Template
 
 load_dotenv()
 TEST_CONFIG_PATH = os.getenv("TEST_FILE")
@@ -78,6 +79,27 @@ class IntentNotifierAgent(Agent):
         behaviour = self.SendPerformative(target_jid, performative, body)
         self.add_behaviour(behaviour)
         await behaviour.join()
+
+    class AskAndWait(OneShotBehaviour):
+        """Manda uma mensagem e espera a resposta (a reserva do piso da VR, Fase 5)."""
+        def __init__(self, target_jid, performative, body, timeout):
+            super().__init__()
+            self.target_jid, self.performative, self.body, self.timeout = target_jid, performative, body, timeout
+            self.reply = None
+
+        async def run(self):
+            msg = Message(to=self.target_jid)
+            msg.set_metadata("performative", self.performative)
+            msg.body = self.body
+            await self.send(msg)
+            self.reply = await self.receive(timeout=self.timeout)
+
+    async def ask_and_wait(self, target_jid, performative, body, reply_performative, timeout):
+        """Devolve a resposta, ou None se ela não chegar no tempo."""
+        behaviour = self.AskAndWait(target_jid, performative, body, timeout)
+        self.add_behaviour(behaviour, Template(metadata={"performative": reply_performative}))
+        await behaviour.join()
+        return behaviour.reply
 
     async def setup(self):
         print(f"[{self.name}] Intent Notifier pronto.")
@@ -219,17 +241,37 @@ class TestOrchestrator:
         return r.stderr.strip() if r.returncode != 0 else ""
 
     async def vr_event(self, slice_name, entrar, description):
-        """VR_JOIN / VR_LEAVE (Fase 5): retoma ou pausa a VR e avisa o leiloeiro pelo XMPP. Com o piso ligado,
-        o leiloeiro aplica o piso da VR na hora (rodada extra) na entrada, e o libera na saída."""
+        """VR_JOIN / VR_LEAVE (Fase 5), como uma reserva de recursos:
+        - entrada: avisa o leiloeiro, espera ele aplicar o piso da VR (rodada extra) e só então retoma o tráfego;
+        - saída: pausa o tráfego e só então avisa o leiloeiro, que libera o piso.
+        Em L0 (vr.floor: off) o leiloeiro responde na hora, sem mudar nada."""
         tipo = "VR_JOIN" if entrar else "VR_LEAVE"
+        corpo = json.dumps({"fatia": slice_name})
         try:
-            erro = await asyncio.to_thread(self.sinal_vr, slice_name, "USR2" if entrar else "USR1")
             client_pod = self.config['slices'][slice_name]['client_pod']
+            reserva = ""
+            if entrar:
+                t0 = time.monotonic()
+                resposta = await self.notifier.ask_and_wait("resource_agent@localhost", "vr_join", corpo, "vr_ack", timeout=20)
+                espera = time.monotonic() - t0
+                if resposta is None:
+                    reserva = f"reserva sem resposta do leiloeiro em {espera:.1f} s"
+                else:
+                    r = json.loads(resposta.body)
+                    reserva = (f"piso aplicado em {espera:.1f} s: CPU {r['cpu']:.2f} (kubelet {r['cpu_aplicada']}), banda {r['bw']:.2f}"
+                               if r["piso_aplicado"] else f"sem piso ({r['nota']}), resposta em {espera:.1f} s")
+                    if any(v > 0 for v in r["falta"].values()):
+                        reserva += f"; faltou {r['falta']}"
+                print(f"[VR] {slice_name}: {reserva}")
+            erro = await asyncio.to_thread(self.sinal_vr, slice_name, "USR2" if entrar else "USR1")
             if erro:
                 self.log_event(f"{tipo}_FAIL", f"Sinal para a VR em {slice_name} falhou", erro)
+                if entrar:      # a VR não voltou: desfaz a reserva, para o piso não ficar preso
+                    await self.notifier.send_performative("resource_agent@localhost", "vr_leave", corpo)
                 return
-            self.log_event(tipo, description, f"pods={client_pod}")
-            await self.notifier.send_performative("resource_agent@localhost", tipo.lower(), json.dumps({"fatia": slice_name}))
+            self.log_event(tipo, description, f"pods={client_pod}" + (f" | {reserva}" if reserva else ""))
+            if not entrar:
+                await self.notifier.send_performative("resource_agent@localhost", "vr_leave", corpo)
         except Exception as e:
             print(f"[ERROR] Falha no {tipo} de {slice_name}: {e}")
             self.log_event(f"{tipo}_ERROR", f"Erro no {tipo} de {slice_name}", str(e))

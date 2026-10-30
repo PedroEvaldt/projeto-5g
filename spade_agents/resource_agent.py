@@ -242,9 +242,10 @@ class ResourceAgent(Agent):
 
     class VRJoinLeave(CyclicBehaviour):
         """VR_JOIN / VR_LEAVE from deploy_test.py (Phase 5). On join, the VR floor holds at once (extra round:
-        first from the free pool, then from the other slices in equal parts, down to their floors). On leave,
-        the floor is released: the VR goes back to the global minimum, and what it had above it returns to the
-        free pool, to be auctioned from the next round on."""
+        first from the free pool, then from the other slices in equal parts, down to their floors), and the
+        auctioneer answers "vr_ack" once the kubelet applied it: deploy_test.py only resumes the VR traffic after
+        that (a reservation). On leave, the floor is released: the VR goes back to the global minimum, and what it
+        had above it returns to the free pool, to be auctioned from the next round on."""
         async def run(self):
             msg = await self.receive(timeout=10)
             if not msg:
@@ -254,17 +255,20 @@ class ResourceAgent(Agent):
             joined = msg.get_metadata("performative") == "vr_join"
             if name not in ag.conditional:
                 print(f"[VR] Ignoring {msg.get_metadata('performative')} for '{name}': not a VR slice in the YAML.")
+                await self.ack(msg, name, joined, False, f"'{name}' is not a VR slice in the YAML")
+                return
+            if not VR_FLOOR_ON:     # L0: nothing to apply, so no need to wait for a running round
+                print(f"[VR] {name} {'joined' if joined else 'left'}; vr.floor is off (L0): the auction changes nothing.")
+                await self.ack(msg, name, joined, False, "vr.floor off (L0)")
                 return
             async with ag.lock:
                 if joined:
                     ag.vr_active.add(name)
                 else:
                     ag.vr_active.discard(name)
-                if not VR_FLOOR_ON:
-                    print(f"[VR] {name} {'joined' if joined else 'left'}; vr.floor is off (L0): the auction changes nothing.")
-                    return
                 if name not in ag.limits:
                     print(f"[VR] {name} {'joined' if joined else 'left'} before the auctioneer knew its limits; the floor holds from the next round.")
+                    await self.ack(msg, name, joined, False, "auctioneer not ready")
                     return
                 if joined:
                     changed, ag.free, missing = leilao.aplicar_piso(name, ag.limits, ag.free, ag.current_floors())
@@ -288,7 +292,20 @@ class ResourceAgent(Agent):
                       f"Free: CPU={ag.free['cpu']:.3f}, BW={ag.free['bw']:.2f}Mbps.")
                 if any(m > 0 for m in missing.values()):
                     print(f"[VR] WARNING: could not reach the floor of {name}; missing CPU={missing['cpu']:.3f}, BW={missing['bw']:.2f}Mbps (the other slices are at their floors).")
-                await ag.log_rows(rows)
+                await ag.log_rows(rows)     # waits 2 s and reads the CPU the kubelet applied (last field)
+                applied = next((r[-1] for r in rows if r[2] == ag.jid_of[name].split("@")[0]), "")
+                await self.ack(msg, name, joined, True, "", ag.limits[name], applied, missing)
+
+        async def ack(self, msg, name, joined, applied_floor, note, limits=None, applied_cpu="", missing=None):
+            """Answers a VR_JOIN (the reservation deploy_test.py waits for). A VR_LEAVE needs no answer."""
+            if not joined:
+                return
+            reply = Message(to=str(msg.sender))
+            reply.set_metadata("performative", "vr_ack")
+            reply.body = json.dumps({"fatia": name, "piso_aplicado": applied_floor, "nota": note,
+                                     "cpu": (limits or {}).get("cpu"), "bw": (limits or {}).get("bw"),
+                                     "cpu_aplicada": applied_cpu, "falta": missing or {}})
+            await self.send(reply)
 
     def current_floors(self):
         """The floor that holds now: the VR's own floor only while it is active (leilao.piso_efetivo)."""
