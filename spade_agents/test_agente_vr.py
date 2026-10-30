@@ -8,6 +8,7 @@ Uso (de dentro de spade_agents/):
 import unittest
 
 import agente_vr
+import leilao
 
 SLA = {"net_ref_ms": 1.87, "folga_net_ms": 3, "perda_max_pct": 1, "cont_min_pct": 98, "vazao_min_mbps": 7.65}
 PISO = {"cpu": 0.28, "bw": 9.9}
@@ -49,13 +50,24 @@ class Decisao(unittest.TestCase):
         for m in (None, janela(paused=1), {"paused": None}):
             r = self.decidir(m)
             self.assertEqual(r["situacao"], "fora")
-            self.assertEqual(r["lance"], 10.0)
+            self.assertEqual(r["lance"], 0.0)
             self.assertNaoPede(r)
 
-    def test_no_sla_lance_minimo_e_nada(self):
+    def test_sem_pedido_nao_vence_a_rodada(self):
+        # A vitória vazia da hvrl2_02: os vídeos recém-reiniciados dão lances de 8, 5 e 3, e a VR fora não pode vencer
+        r = self.decidir(janela(paused=1), atual={"cpu": 0.01, "bw": 1.0})
+        lances = [{"fatia": f, "lance": l, "cpu_alvo": 0.3, "cpu": 0.2, "bw_alvo": 12.0, "bw": 10.0, "mem_alvo": 0, "mem": 0}
+                  for f, l in (("gold", 8.0), ("silver", 5.0), ("bronze", 3.0))]
+        lances.append({"fatia": "vr", "lance": r["lance"], "cpu_alvo": r["cpu_alvo"], "cpu": 0.01,
+                       "bw_alvo": r["bw_alvo"], "bw": 1.0, "mem_alvo": 0, "mem": 0})
+        piso = {f: {"cpu": 0.01, "bw": 1.0} for f in ("gold", "silver", "bronze", "vr")}
+        resultado = leilao.rodada(lances, {"cpu": 0.0, "mem": 0.0, "bw": 0.0}, piso)
+        self.assertEqual(resultado["vencedor"]["fatia"], "gold")
+
+    def test_no_sla_sem_lance_e_nada(self):
         r = self.decidir(janela(net_ms=3.2))                                   # gastou 44% da folga: ainda não pede
         self.assertEqual(r["situacao"], "no_sla")
-        self.assertEqual(r["lance"], 10.0)
+        self.assertEqual(r["lance"], 0.0)
         self.assertNaoPede(r)
 
     def test_atraso_com_throttling_pede_cpu(self):
@@ -71,12 +83,12 @@ class Decisao(unittest.TestCase):
         self.assertAlmostEqual(r["cpu_alvo"], 0.45)
         r = self.decidir(janela(net_ms=6.0, throttling=0.3), atual={"cpu": 0.45, "bw": 12.0})
         self.assertEqual(r["situacao"], "teto_cpu")                          # no teto: não há mais o que pedir
-        self.assertEqual(r["lance"], 10.0)
+        self.assertEqual(r["lance"], 0.0)
 
     def test_atraso_sem_throttling_nao_pede(self):
         r = self.decidir(janela(net_ms=6.0, throttling=0.0))
         self.assertEqual(r["situacao"], "fora_das_cotas")
-        self.assertEqual(r["lance"], 10.0)
+        self.assertEqual(r["lance"], 0.0)
         self.assertNaoPede(r)
 
     def test_vazao_baixa_sem_throttling_pede_banda(self):
@@ -102,7 +114,7 @@ class Decisao(unittest.TestCase):
         # leiloeiro (ele sabe se vale), e o agente não pede nada (o erro da execução hvrl2_01)
         r = self.decidir(janela(), atual={"cpu": 0.01, "bw": 1.0})
         self.assertEqual(r["situacao"], "no_sla")
-        self.assertEqual(r["lance"], 10.0)
+        self.assertEqual(r["lance"], 0.0)
         self.assertNaoPede(r, {"cpu": 0.01, "bw": 1.0})
 
     def test_upf4_no_minimo_quer_dizer_fora(self):
@@ -112,7 +124,7 @@ class Decisao(unittest.TestCase):
         r = agente_vr.decidir(janela(net_ms=6.0, throttling=0.3), no_minimo, PISO, SLA, BASE, SALDO,
                               minimo={"cpu": 0.01, "bw": 1.0})
         self.assertEqual(r["situacao"], "fora (piso liberado)")
-        self.assertEqual(r["lance"], 10.0)
+        self.assertEqual(r["lance"], 0.0)
         self.assertNaoPede(r, no_minimo)
         r = agente_vr.decidir(janela(net_ms=6.0, throttling=0.3), {"cpu": 0.15, "bw": 9.9}, PISO, SLA, BASE, SALDO,
                               minimo={"cpu": 0.01, "bw": 1.0})                # apertada à mão: não é o mínimo
@@ -124,8 +136,8 @@ class Decisao(unittest.TestCase):
         self.assertEqual(r["lance"], anterior["lance"])
         self.assertEqual(r["cpu_alvo"], anterior["cpu_alvo"])
         self.assertTrue(r["situacao"].startswith("sem_saude"))
-        r = self.decidir(janela(health=0))                                    # sem decisão anterior: o mínimo
-        self.assertEqual(r["lance"], 10.0)
+        r = self.decidir(janela(health=0))                                    # sem decisão anterior: não dá lance
+        self.assertEqual(r["lance"], 0.0)
 
     def test_alvo_nunca_abaixo_do_atual(self):
         anterior = self.decidir(janela(net_ms=5.0, throttling=0.2))          # pediu 0,35
