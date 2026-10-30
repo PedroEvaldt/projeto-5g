@@ -195,10 +195,11 @@ class SliceAgent(Agent):
             print("[MONITORING] Starting resource monitoring behavior (runs every 5 seconds).")
         async def run(self):
             upf_name = self.agent.upf_target
-            
-            cpu_usage = self.agent.prometheus_query(upf_name, "cpu")
-            memory_usage = self.agent.prometheus_query(upf_name, "memory")
-            bandwidth_usage = self.agent.prometheus_query(upf_name, "bandwidth")
+
+            # In a thread (Phase 5): a slow Prometheus must not block the agent and make it miss the CFP
+            cpu_usage = await asyncio.to_thread(self.agent.prometheus_query, upf_name, "cpu")
+            memory_usage = await asyncio.to_thread(self.agent.prometheus_query, upf_name, "memory")
+            bandwidth_usage = await asyncio.to_thread(self.agent.prometheus_query, upf_name, "bandwidth")
 
             if cpu_usage is not None:
                 self.agent.cpu_usage = cpu_usage
@@ -296,6 +297,8 @@ class SliceAgent(Agent):
                         self.bandwidth_limit = float(bw_str[:-1])
                     elif bw_str.endswith('G'):
                         self.bandwidth_limit = float(bw_str[:-1]) * 1024
+                    elif bw_str.endswith('k'):     # what the auctioneer writes (e.g. "9900k"; Phase 5)
+                        self.bandwidth_limit = float(bw_str[:-1]) / 1000
                 else:
                     self.bandwidth_limit = 100.0
                 print(f"[{self.name}] Successfully loaded initial Bandwidth Limit: {self.bandwidth_limit}Mbps")
@@ -323,9 +326,14 @@ async def main():
         for slice_name, slice_info in test_config['slices'].items()
     }
 
+    # VR slices (tipo: vr, Phase 5) bid with the same utilization agent (L0, L1); the SLA agent (L2) is Phase 6
+    vr_agent = (test_config.get('vr') or {}).get('agent', 'utilizacao')
+    if any(s.get('tipo') == 'vr' for s in test_config['slices'].values()) and vr_agent != 'utilizacao':
+        raise SystemExit(f"[ERROR] vr.agent: {vr_agent} is not available yet (the SLA agent is Phase 6). Use vr.agent: utilizacao.")
+
     # 2. Create Slice Agents for each tier
     slice_agents = []
-    
+
     for tier_name, config in PRIORITY_TIERS.items():
         
         w = config["weight"]
