@@ -381,8 +381,15 @@ class VRSliceAgent(SliceAgent):
             return None
 
     async def propose_by_sla(self, behaviour, msg):
+        # Fresh reading at bid time: a reading from up to a monitoring period ago could still show the VR active
+        # right after a VR_LEAVE (Prometheus scrapes every 5 s; the exporter marks the pause at once)
+        self.vr_metrics = await asyncio.to_thread(self.read_vr_metrics)
+        limits = await asyncio.to_thread(self.read_upf_limits)
+        if limits:
+            self.cpu_limit, self.bandwidth_limit = limits
         decision = agente_vr.decidir(self.vr_metrics, {"cpu": self.cpu_limit, "bw": self.bandwidth_limit}, self.vr_floor,
-                                     self.vr_sla, self.base_bid, self.budget, self.last_decision, self.vr_params)
+                                     self.vr_sla, self.base_bid, self.budget, self.last_decision, self.vr_params,
+                                     {"cpu": test_config['auction']['minimum_cpu'], "bw": test_config['auction']['minimum_bw']})
         self.last_decision = decision
         print(f"[{self.name}] SLA bid: {decision['situacao']} (d={decision['d']:.2f}). Requesting CPU: {decision['cpu_alvo']}, "
               f"BW: {decision['bw_alvo']}Mbps. Bidding {decision['lance']}.")

@@ -7,8 +7,8 @@ O lance mede quanto a VR gastou da folga do SLA (a fórmula do plano, lance_vr).
 Fases 3 e 4:
   - atraso alto com a cota da upf4 esgotando (throttling) -> falta CPU: pede +cpu_passo, até cpu_teto;
   - vazão abaixo do SLA sem throttling -> falta banda: pede +bw_passo;
-  - atraso alto sem throttling -> o resto fora das cotas: CPU não resolve, não pede;
-  - abaixo do piso (alguém mexeu na upf4) -> pede o piso de volta.
+  - atraso alto sem throttling -> o resto fora das cotas: CPU não resolve, não pede.
+Os pedidos vão pelo menos até o piso (se alguém apertou a upf4 à mão e a VR sofre, ela volta direto ao piso).
 Sem nada a pedir, o lance é o mínimo (0,1 x base): a VR perde a rodada, o piso a protege e o vídeo leva a sobra.
 Com a VR fora (vr_paused = 1) ou sem métricas, lance mínimo e nada pedido. Janela sem saúde: repete a última decisão.
 """
@@ -32,24 +32,28 @@ def lance_vr(d, base, saldo):
     return min(base * (LANCE_MIN + 1.4 * d / 1.5), saldo)
 
 
-def decidir(m, atual, piso, sla, base, saldo, anterior=None, parametros=None):
+def decidir(m, atual, piso, sla, base, saldo, anterior=None, parametros=None, minimo=None):
     """Uma decisão por rodada.
 
     m: métricas da última janela, ou None se não houver: {"paused", "health", "net_ms", "cont_pct", "perda_pct",
        "vazao_mbps", "throttling"} (throttling = fração dos períodos de 100 ms em que a upf4 esgotou a cota).
     atual: limites atuais da upf4, {"cpu", "bw"}; piso: o piso da VR, {"cpu", "bw"}; sla: o bloco sla do calibracao.yaml.
     anterior: a decisão da rodada anterior (para repetir numa janela sem saúde).
+    minimo: os mínimos globais do leilão, {"cpu", "bw"}. A upf4 nos dois mínimos quer dizer que o leiloeiro liberou o
+    piso (a VR saiu), mesmo que a leitura do Prometheus, de até 5 s atrás, ainda não mostre a pausa.
     Devolve {"situacao", "lance", "cpu_alvo", "bw_alvo", "d"}. Os alvos nunca ficam abaixo dos limites atuais.
     """
     p = {**PARAMETROS, **(parametros or {})}
-    minimo = min(LANCE_MIN * base, saldo)
+    lance_minimo = min(LANCE_MIN * base, saldo)
     nada = {"cpu_alvo": atual["cpu"], "bw_alvo": atual["bw"]}
 
     if m is None or m.get("paused") is None or m["paused"] == 1:
-        return {"situacao": "fora", "lance": minimo, "d": 0.0, **nada}
+        return {"situacao": "fora", "lance": lance_minimo, "d": 0.0, **nada}
+    if minimo and atual["cpu"] <= minimo["cpu"] + 1e-9 and atual["bw"] <= minimo["bw"] + 1e-9:
+        return {"situacao": "fora (piso liberado)", "lance": lance_minimo, "d": 0.0, **nada}
     if m.get("health") != 1:
         if anterior is None:
-            return {"situacao": "sem_saude", "lance": minimo, "d": 0.0, **nada}
+            return {"situacao": "sem_saude", "lance": lance_minimo, "d": 0.0, **nada}
         return {**anterior, "situacao": "sem_saude (repete)", "lance": min(anterior["lance"], saldo),
                 "cpu_alvo": max(anterior["cpu_alvo"], atual["cpu"]), "bw_alvo": max(anterior["bw_alvo"], atual["bw"])}
 
@@ -57,12 +61,9 @@ def decidir(m, atual, piso, sla, base, saldo, anterior=None, parametros=None):
     # Janela sem quadros: o exporter zera a continuidade, mas não reescreve a vazão (fica a da janela anterior)
     vazao = 0.0 if m["cont_pct"] <= 0 else m["vazao_mbps"]
     cpu_alvo, bw_alvo, motivos = atual["cpu"], atual["bw"], []
-
-    # Abaixo do piso: pede o piso de volta, esteja a VR bem ou não
-    if atual["cpu"] < piso["cpu"] - 1e-9:
-        cpu_alvo, motivos = piso["cpu"], motivos + ["piso"]
-    if atual["bw"] < piso["bw"] - 1e-9:
-        bw_alvo, motivos = piso["bw"], motivos + ["piso"] if "piso" not in motivos else motivos
+    # Abaixo do piso com a VR bem, o agente não pede nada: quem sabe se o piso vale (VR ativa) é o leiloeiro, e ele
+    # devolve ao piso quem está abaixo dele. Pedir aqui fez a VR, recém-pausada e ainda vista como ativa, pegar o
+    # piso de volta (execução hvrl2_01). Se a VR sofre, os pedidos abaixo já vão pelo menos até o piso.
 
     if d >= p["d_pedir"]:
         throttling = m.get("throttling") or 0.0
@@ -73,16 +74,16 @@ def decidir(m, atual, piso, sla, base, saldo, anterior=None, parametros=None):
                 motivos.append("cpu")
             elif not motivos:
                 # Já no teto de CPU: acima dele mais CPU não melhorou nada na calibração com vídeo (Fase 4)
-                return {"situacao": "teto_cpu", "lance": minimo, "d": d, **nada}
+                return {"situacao": "teto_cpu", "lance": lance_minimo, "d": d, **nada}
         elif vazao < sla["vazao_min_mbps"]:
             # O fluxo não passa e a cota não esgota: falta banda
             bw_alvo = max(bw_alvo, piso["bw"], atual["bw"] + p["bw_passo"])
             motivos.append("banda")
         elif not motivos:
             # Atraso alto sem cota esgotando e com o fluxo inteiro: o resto fora das cotas (Fase 4); CPU não resolve
-            return {"situacao": "fora_das_cotas", "lance": minimo, "d": d, **nada}
+            return {"situacao": "fora_das_cotas", "lance": lance_minimo, "d": d, **nada}
 
     if not motivos:
-        return {"situacao": "no_sla", "lance": minimo, "d": d, **nada}
+        return {"situacao": "no_sla", "lance": lance_minimo, "d": d, **nada}
     return {"situacao": "+".join(motivos), "lance": lance_vr(d, base, saldo), "d": d,
             "cpu_alvo": max(cpu_alvo, atual["cpu"]), "bw_alvo": max(bw_alvo, atual["bw"])}

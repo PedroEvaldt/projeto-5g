@@ -91,13 +91,32 @@ class Decisao(unittest.TestCase):
         self.assertEqual(r["situacao"], "banda")
         self.assertAlmostEqual(r["lance"], 150.0)
 
-    def test_abaixo_do_piso_pede_o_piso(self):
+    def test_abaixo_do_piso_sofrendo_volta_direto_ao_piso(self):
         atual = {"cpu": 0.15, "bw": 9.9}
         r = self.decidir(janela(net_ms=29.0, throttling=0.25), atual=atual)  # alguém apertou a upf4 à mão
+        self.assertEqual(r["situacao"], "cpu")
         self.assertEqual(r["cpu_alvo"], 0.28)                                  # direto ao piso, não só +0,05
-        self.assertIn("piso", r["situacao"])
-        r = self.decidir(janela(), atual={"cpu": 0.28, "bw": 1.0})            # a VR ainda está bem, mas sem a banda do piso
-        self.assertEqual(r["bw_alvo"], 9.9)
+
+    def test_abaixo_do_piso_bem_nao_pede(self):
+        # Logo depois de uma saída, a VR está no mínimo e a leitura pode ainda dizer "ativa" e "bem": o piso é do
+        # leiloeiro (ele sabe se vale), e o agente não pede nada (o erro da execução hvrl2_01)
+        r = self.decidir(janela(), atual={"cpu": 0.01, "bw": 1.0})
+        self.assertEqual(r["situacao"], "no_sla")
+        self.assertEqual(r["lance"], 10.0)
+        self.assertNaoPede(r, {"cpu": 0.01, "bw": 1.0})
+
+    def test_upf4_no_minimo_quer_dizer_fora(self):
+        # Logo depois de um VR_LEAVE, a leitura (de até 5 s atrás) pode ainda dizer "ativa" e até "sofrendo"; a upf4 nos
+        # mínimos globais só acontece quando o leiloeiro liberou o piso
+        no_minimo = {"cpu": 0.01, "bw": 1.0}
+        r = agente_vr.decidir(janela(net_ms=6.0, throttling=0.3), no_minimo, PISO, SLA, BASE, SALDO,
+                              minimo={"cpu": 0.01, "bw": 1.0})
+        self.assertEqual(r["situacao"], "fora (piso liberado)")
+        self.assertEqual(r["lance"], 10.0)
+        self.assertNaoPede(r, no_minimo)
+        r = agente_vr.decidir(janela(net_ms=6.0, throttling=0.3), {"cpu": 0.15, "bw": 9.9}, PISO, SLA, BASE, SALDO,
+                              minimo={"cpu": 0.01, "bw": 1.0})                # apertada à mão: não é o mínimo
+        self.assertEqual(r["situacao"], "cpu")
 
     def test_sem_saude_repete(self):
         anterior = self.decidir(janela(net_ms=5.0, throttling=0.2))
