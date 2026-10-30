@@ -1,0 +1,173 @@
+# ============================================================
+# CENÁRIO H-VR em L2 (Fase 6): fatias hierárquicas de vídeo + VR, com o agente da VR por SLA
+# ============================================================
+# Cópia do test_config.yaml (o cenário só de vídeo, que continua sendo a referência da v1.0-video) com:
+#   - a fatia vr (tipo: vr) na upf4, com o UE ue-vr-07;
+#   - o bloco vr: piso condicional ligado e agente por SLA (L2; o test_config_hvr.yaml é a L1);
+#   - os eventos da VR (vr_leave/vr_join) intercalados com os do vídeo, como no plano (cenário H-VR).
+# O piso da VR vem do vr/calibracao.yaml (CPU 0,28 e banda 9,9), a não ser que a fatia defina floor_cpu/floor_bw.
+# Para L0 (sem piso): copiar este arquivo, trocar vr.floor para off e a pasta de saída para .../hvr_l0/.
+
+# Metadados do teste
+test_metadata:
+  name: "hvr_l2"
+  description: "Cenário H-VR: fatias hierárquicas de vídeo e a VR entrando e saindo; piso condicional e agente da VR por SLA (L2)"
+  timestamp: "2026-10-30"
+  duration_seconds: 900  # 15 minutos total
+
+# Parâmetros iniciais dos slices (Sincronizado com slice_agents.py)
+initial_parameters:
+  cpu: 0.2
+  memory: 512.0
+  bandwidth: 10.0
+slices:
+  gold:
+    initial_priority: 8.0
+    upf: "upf1"
+    slice_id: "000001"
+    dnn: "slice01"
+    client_pod: "ue-video-01"
+  silver:
+    initial_priority: 5.0
+    upf: "upf2"
+    slice_id: "000002"
+    dnn: "slice02"
+    client_pod: "ue-video-03"
+  bronze:
+    initial_priority: 3.0
+    upf: "upf3"
+    slice_id: "000003"
+    dnn: "slice03"
+    client_pod: "ue-video-05"
+  vr:
+    tipo: "vr"                 # VR: piso condicional, não é reiniciada pelo run_experiment, eventos vr_join/vr_leave
+    initial_priority: 10.0
+    upf: "upf4"
+    slice_id: "000004"
+    dnn: "slice04"
+    client_pod: "ue-vr-07"
+    # floor_cpu e floor_bw: sem eles, valem os do vr/calibracao.yaml
+
+# Chaves da VR (Fase 5)
+vr:
+  floor: on                    # piso condicional com rodada extra (L1, L2); off = sem piso (L0)
+  agent: sla                   # utilizacao = L0 e L1; sla = L2 (Fase 6)
+  sla_agent:                   # o agente por SLA (spade_agents/agente_vr.py); estes são os padrões
+    d_pedir: 0.5               # só pede recurso depois de gastar metade da folga do SLA
+    throttling_min: 0.02       # fração dos períodos de 100 ms com a cota da upf4 esgotada para pedir CPU
+    cpu_passo: 0.05            # núcleo a mais por rodada
+    cpu_teto: 0.45             # acima disso, mais CPU não melhorou nada na calibração com vídeo (Fase 4)
+    bw_passo: 1.0              # Mbps a mais por rodada, quando falta banda
+
+# Parâmetros do leilão (Sincronizado com resource_agent.py)
+auction:
+  period_seconds: 30          # Período original do AuctioneerBehavior
+  minimum_cpu: 0.01           # MINIMUM_CPU do resource_agent.py
+  minimum_bw: 1.0             # MINIMUM_BW do resource_agent.py
+  minimum_memory: 64          # MINIMUM_MEMORY do resource_agent.py
+  total_cpu_pool: 0.8        # CORE_CPU_LIMIT real do servidor
+  total_bw_pool: 35          # CORE_BW_LIMIT real do servidor
+  total_memory_pool: 2048      # CORE_MEMORY_LIMIT real do servidor
+  monitoring_period_seconds: 20  # Período de monitoramento para coleta de métricas
+
+# Parâmetros de bidding dos slice agents (Sincronizado com slice_agents.py)
+bidding:
+  base_budget: 20.0
+  base_income: 2.0
+  base_bid: 10.0
+  high_stress_threshold: 0.6
+  moderate_stress_threshold: 0.4
+  comfortable_threshold: 0.2
+  # Coeficientes de incremento de recursos em HIGH STRESS
+  high_stress_coeff_max: 1.0
+  high_stress_coeff_min: 0.2
+  # Coeficientes de incremento de recursos em MODERATE STRESS
+  moderate_stress_coeff_max: 0.5
+  moderate_stress_coeff_min: 0.1
+  # Coeficientes de incremento de recursos em COMFORTABLE
+  comfortable_coeff_max: 0.15
+  comfortable_coeff_min: 0.0
+
+# Eventos do cenário H-VR (plano, seção "Cenários"): os do vídeo são os do test_config.yaml;
+# os da VR caem em tempos diferentes, para os efeitos não se misturarem.
+events:
+  - timestamp: 0
+    type: "vr_leave"
+    description: "A VR começa fora da rede."
+    vr_slice: "vr"
+
+  - timestamp: 60
+    type: "vr_join"
+    description: "A VR entra com todas as fatias de vídeo ocupando a rede."
+    vr_slice: "vr"
+
+  - timestamp: 120
+    type: "traffic_pause"
+    description: "Slice Gold cai inesperadamente."
+    pause_slice: "gold"
+
+  - timestamp: 270
+    type: "traffic_pause"
+    description: "Slice Silver cai inesperadamente. Bronze é a única sobrevivente na rede e deve absorver toda a banda disponível."
+    pause_slice: "silver"
+
+  - timestamp: 345
+    type: "vr_leave"
+    description: "A VR sai da rede: o piso é liberado."
+    vr_slice: "vr"
+
+  - timestamp: 420
+    type: "traffic_resume"
+    description: "Slice Gold é restaurada e deve retomar a liderança do leilão."
+    resume_slice: "gold"
+
+  - timestamp: 540
+    type: "traffic_pause"
+    description: "Slice Bronze cai inesperadamente."
+    pause_slice: "bronze"
+
+  - timestamp: 600
+    type: "vr_join"
+    description: "A VR volta, agora com sobra na rede."
+    vr_slice: "vr"
+
+  - timestamp: 660
+    type: "traffic_resume"
+    description: "Slice Silver é restaurada."
+    resume_slice: "silver"
+
+  - timestamp: 780
+    type: "traffic_resume"
+    description: "Slice Bronze é restaurada. Todas as três fatias estão ativas simultaneamente para os minutos finais."
+    resume_slice: "bronze"
+
+# Clientes DASH a serem deployados (um por slice)
+dash_clients:
+  gold:
+    count: 1
+    start_id: 1
+    session_duration: 900
+  silver:
+    count: 1
+    start_id: 2
+    session_duration: 900
+  bronze:
+    count: 1
+    start_id: 3
+    session_duration: 900
+
+# Monitoring e coleta
+monitoring:
+  prometheus_url: "http://localhost:35235/"
+  prometheus_interval_seconds: 5
+  kubectl_logs_interval_seconds: 5
+  csv_output_dir: "../metricas_scripts/resultados/hvr_l2/teste/"
+  auction_log_file: "auction_history.csv"
+  event_log_file: "test_events.csv"
+  timeseries_log_file: "qoe_timeseries.csv"
+
+# Google Sheets (para saída final)
+google_sheets:
+  enabled: true
+  spreadsheet_name: "Relatorio_Testes_5G_Dinamico"
+  credentials_file: "credentials.json"
