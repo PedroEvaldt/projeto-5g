@@ -27,6 +27,9 @@ URL_PROMETHEUS = test_config['monitoring']['prometheus_url']
 BASE_BUDGET = test_config['bidding']['base_budget']
 BASE_INCOME = test_config['bidding']['base_income']
 BASE_BID = test_config['bidding']['base_bid']
+# Phase 7: a new priority from the LLM also changes how much the video agent asks for (calculate_coeff). Off = as in
+# the paper (v1.0-video): the inform changes only the base bid, the income and the budget
+INFORM_UPDATES_PRIORITY = str(test_config['bidding'].get('inform_updates_priority', False)).lower() in ("true", "on", "1")
 MONITORING_PERIOD = test_config['auction']['monitoring_period_seconds']
 CALIBRACAO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vr", "calibracao.yaml")   # SLA and floor of the VR (Phase 6)
 
@@ -193,7 +196,10 @@ class SliceAgent(Agent):
                     self.agent.base_bid = BASE_BID * new_priority
                     self.agent.income = BASE_INCOME * new_priority
                     self.agent.budget = BASE_BUDGET * new_priority
-                    print(f"[{self.agent.name}] Received new priority: {new_priority}. Updated base bid: {self.agent.base_bid}, base income: {self.agent.income}, base budget: {self.agent.budget}.")
+                    if INFORM_UPDATES_PRIORITY:
+                        self.agent.priority = new_priority
+                    print(f"[{self.agent.name}] Received new priority: {new_priority}. Updated base bid: {self.agent.base_bid}, base income: {self.agent.income}, base budget: {self.agent.budget}."
+                          + (f" Priority used in the requests: {self.agent.priority}." if INFORM_UPDATES_PRIORITY else ""))
                 
 
     class ResourceMonitoring(PeriodicBehaviour):
@@ -464,6 +470,7 @@ async def main():
     vr_agent = (test_config.get('vr') or {}).get('agent', 'utilizacao')
     if any(s.get('tipo') == 'vr' for s in test_config['slices'].values()) and vr_agent not in ('utilizacao', 'sla'):
         raise SystemExit(f"[ERROR] vr.agent: {vr_agent} is not valid. Use vr.agent: utilizacao or sla.")
+    print(f"[CONFIG] bidding.inform_updates_priority: {INFORM_UPDATES_PRIORITY}")
 
     # 2. Create Slice Agents for each tier
     slice_agents = []

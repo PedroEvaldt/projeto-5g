@@ -1,7 +1,8 @@
+import csv
 import json
+import time
 import yaml
 import asyncio
-from pydantic import BaseModel, Field
 import spade
 import os
 from dotenv import load_dotenv
@@ -12,29 +13,55 @@ from spade_llm import LLMAgent, LLMProvider, ChatAgent
 from spade_llm.context import create_user_message, create_system_message, ContextManager
 from litellm import acompletion
 
+import politica_llm
+
 load_dotenv()
 MODEL = "openai/vllm.gpt-oss-20b"
+BASE_URL = "https://ollama.k8s.inf.ufrgs.br/api"
+TEMPERATURE = 0.01
 API_KEY = os.getenv("API_KEY")
 TEST_CONFIG_PATH = os.getenv("TEST_FILE")
 with open(TEST_CONFIG_PATH, "r") as f:
     config = yaml.safe_load(f)
 
-# ['gold', 'silver', 'bronze'] -> "'gold', 'silver', or 'bronze'"
-slice_names = list(config['slices'].keys())
-if len(slice_names) > 1:
-    valid_slices_str = ", ".join([f"'{s}'" for s in slice_names[:-1]]) + f", or '{slice_names[-1]}'"
-else:
-    valid_slices_str = f"'{slice_names[0]}'"
+# Phase 7: the prompt and the validation of the answers are in politica_llm.py (SlicePriorityUpdate moved there).
+# vr.llm: artigo = the paper's prompt, without the VR slices (L2); vr = the prompt describes the VR and its floor (L3)
+VR_LLM = str((config.get('vr') or {}).get('llm', 'artigo'))
+if VR_LLM not in ('artigo', 'vr'):
+    raise SystemExit(f"[ERROR] vr.llm: {VR_LLM} is not valid. Use vr.llm: artigo or vr.")
+KNOWS_VR = VR_LLM == 'vr'
+LLM_SLICES = politica_llm.fatias_do_llm(config, KNOWS_VR)     # the slices the LLM sees and may change
+CALIBRACAO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vr", "calibracao.yaml")
+DECISIONS_CSV = config['monitoring']['csv_output_dir'] + "llm_decisoes.csv"
 
-class SlicePriorityUpdate(BaseModel):
-    # Forces the LLM to output a string, and tells it which strings are allowed
-    target_slice: str = Field(description="The exact prefix of the slice: 'gold', 'silver', or 'bronze'")
-    
-    # Forces the LLM to output a float, and tells it the limits
-    new_priority: float = Field(description="The new priority weight for the slice. Use a scale of 1.0 to 10.0.")
-    
-    # Forces the LLM to explain itself, which is great for your console logs
-    reasoning: str = Field(description="A brief explanation of why this weight was assigned based on the network intent.")
+
+def vr_floors():
+    """The floor of each VR slice, as the auctioneer applies it (vr/calibracao.yaml, unless the slice defines
+    floor_cpu/floor_bw); none with vr.floor off."""
+    if str((config.get('vr') or {}).get('floor', True)).lower() not in ("true", "on", "1"):   # YAML reads `on` as True
+        return {}
+    with open(CALIBRACAO) as f:
+        calib = yaml.safe_load(f)['piso']
+    return {name: {"cpu": float(s.get('floor_cpu', calib['cpu'])), "bw": float(s.get('floor_bw', calib['banda_mbps']))}
+            for name, s in config['slices'].items() if s.get('tipo') == 'vr'}
+
+
+def log_decisions(valid, discarded):
+    """One row per item of each LLM answer in llm_decisoes.csv, next to the auction_history.csv: what the LLM decided,
+    what was clamped to [1, 10] and what was discarded (and why)."""
+    now = time.strftime('%Y-%m-%d %H:%M:%S')
+    new = not os.path.exists(DECISIONS_CSV)
+    os.makedirs(os.path.dirname(DECISIONS_CSV), exist_ok=True)
+    with open(DECISIONS_CSV, "a", newline="") as f:
+        w = csv.writer(f)
+        if new:
+            w.writerow(["Timestamp", "Status", "Fatia", "Prioridade", "Ajuste", "Raciocinio", "Motivo_descarte"])
+        for v in valid:
+            w.writerow([now, "valida", v["fatia"], v["prioridade"], v["ajuste"], v["motivo"], ""])
+        for d in discarded:
+            item = d["item"] if isinstance(d["item"], dict) else {"reasoning": d["item"]}
+            w.writerow([now, "descartada", item.get("target_slice", ""), item.get("new_priority", ""), "",
+                        item.get("reasoning", ""), d["motivo"]])
 
 class DispatcherAgent(Agent):
     class RouteMessagesBehaviour(CyclicBehaviour):
@@ -43,23 +70,25 @@ class DispatcherAgent(Agent):
         async def run(self):
             msg = await self.receive(timeout=10)
             if msg:
-                try:    
-                    clean_json = msg.body.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-                    policy_updates = json.loads(clean_json)
+                try:
+                    # Phase 7: only known slices, with the priority clamped to [1, 10] (politica_llm.validar)
+                    policy_updates, discarded = politica_llm.validar(msg.body, LLM_SLICES)
+                    log_decisions(policy_updates, discarded)
+                    for d in discarded:
+                        print(f"⚠️ [Dispatcher] Discarded {d['item']}: {d['motivo']}")
 
                     print("🔄 [Dispatcher] Sending new policies to slice agents...")
 
-                    if isinstance(policy_updates, dict):
-                            policy_updates = [policy_updates]
                     for update in policy_updates:
-                        target_slice = update["target_slice"] + "_slice@localhost"
+                        target_slice = update["fatia"] + "_slice@localhost"
                         msg = Message(to=str(target_slice))
                         msg.set_metadata("performative", "inform")
                         msg.body = json.dumps({
-                            "new_priority": float(update["new_priority"])
+                            "new_priority": update["prioridade"]
                         })
                         await self.send(msg)
-                        print(f"📤 Dispatched new priority {update['new_priority']} to {update["target_slice"]} with reasoning: {update['reasoning']}")
+                        clamped = f" (the LLM asked {update['ajuste']})" if update["ajuste"] else ""
+                        print(f"📤 Dispatched new priority {update['prioridade']}{clamped} to {update['fatia']} with reasoning: {update['motivo']}")
                     print("✅ [Dispatcher] All slices updated!\n")
                 except Exception as e:
                     print(f"❌ [Dispatcher] Error while sending policies: {e}")
@@ -76,45 +105,14 @@ async def main():
     print("🚀 Starting Strategist Agent...")
     provider = LLMProvider(
         model=MODEL,
-        base_url= 'https://ollama.k8s.inf.ufrgs.br/api',
+        base_url=BASE_URL,
         api_key=API_KEY,
-        temperature=0.01,
+        temperature=TEMPERATURE,
     )
 
-    slices_state = ""
-    for slice_name, info in config['slices'].items():
-        slices_state += f"        - {slice_name} (Default: {info['initial_priority']})\n"
-    
-    sys_prompt = f"""
-        You are an AI 5G Network Strategist orchestrating a Multi-Agent System (MAS). 
-        Your job is to translate high-level human intents into economic policies for network slices competing in a resource allocation auction.
-
-        ### THE NETWORK STATE
-        You manage active network slices. Their default priority weights are:
-        {slices_state}
-        ### THE ECONOMIC ENGINE
-        You do not allocate CPU or Bandwidth directly. Instead, you control the economic parameters of the MAS. The priority weight (1.0 to 10.0) you assign directly scales a slice's purchasing power in the Vickrey auction using the following formulas:
-        - Budget (Wallet Capacity) = {config['bidding']['base_budget']} * new_weight
-        - Income (Wealth Regeneration) = {config['bidding']['base_income']} * new_weight
-        - Base Bid (Auction Aggressiveness) = {config['bidding']['base_bid']} * new_weight
-
-        ### Requested Output
-        When you receive a network intent, you must respond with a JSON array containing one or more objects. Include an object for EVERY slice that needs its priority adjusted.
-        [
-            {{
-                "target_slice": "one of {valid_slices_str}",
-                "new_priority": "a float between 1.0 and 10.0",
-                "reasoning": "a brief explanation of your decision"
-            }}
-        ]
-
-        ### YOUR INSTRUCTIONS
-        1. Analyze the incoming network intent (e.g., changes in traffic, VIP events, maintenance).
-        2. Determine WHICH slices require a priority adjustment to fulfill this intent. You may adjust one, two, or all slices at once.
-        3. Calculate a new weight (between 1.0 and 10.0) for each targeted slice. Higher weights grant massive financial dominance; lower weights financially starve the slice.
-        4. Provide a brief, logical reasoning for each decision.
-        5. You must output ONLY a valid JSON array matching the requested schema. Do not include markdown formatting or conversational filler.
-    """
+    # Phase 7: the paper's prompt (vr.llm: artigo, L2) or the one that knows the VR and its floor (vr.llm: vr, L3)
+    sys_prompt = politica_llm.montar_prompt(config, KNOWS_VR, vr_floors())
+    print(f"🧭 Prompt: vr.llm = {VR_LLM}. Slices the LLM may change: {', '.join(LLM_SLICES)}")
     dispatcher_agent = DispatcherAgent(
         jid="dispatcher_agent@localhost",
         password="password",
