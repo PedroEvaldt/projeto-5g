@@ -42,7 +42,7 @@ slices:
     client_pod: "ue-video-05"
   drone:
     tipo: "vr"                 # VR: piso condicional, não é reiniciada pelo run_experiment, eventos vr_join/vr_leave
-    initial_priority: 10.0
+    initial_priority: 5.0
     upf: "upf4"
     slice_id: "000004"
     dnn: "slice04"

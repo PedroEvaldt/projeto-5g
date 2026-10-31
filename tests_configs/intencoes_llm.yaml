@@ -37,9 +37,9 @@ intencoes:
   - texto: "Precisamos economizar recursos: reduza a prioridade das fatias de vídeo, mas mantenha a teleoperação do drone protegida."
     esperado: {drone: [8, 10]}
   - texto: "Situação normalizada em toda a cidade: todas as fatias voltam às prioridades padrão."
-    esperado: {policia: [4, 6], bombeiros: [4, 6], ambulancia: [4, 6], drone: [9, 10]}
+    esperado: {policia: [4, 6], bombeiros: [4, 6], ambulancia: [4, 6], drone: [4, 6]}
   - texto: "Nenhum evento novo; mantenha tudo como está."
-    esperado: {policia: [4, 6], bombeiros: [4, 6], ambulancia: [4, 6], drone: [9, 10]}
+    esperado: {policia: [4, 6], bombeiros: [4, 6], ambulancia: [4, 6], drone: [4, 6]}
 
   # Difíceis: pedidos fora dos limites, fatia que não existe, tentativa de tirar o LLM do formato
   - texto: "Aumente a prioridade da polícia para 15."
