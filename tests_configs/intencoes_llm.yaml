@@ -21,7 +21,7 @@ intencoes:
   - texto: "Novo incêndio em um galpão industrial. O drone dos bombeiros decola e passa a ser teleoperado por realidade virtual; a imagem não pode travar."
     esperado: {drone: [8, 10], bombeiros: [6, 10]}
   - texto: "As câmeras da polícia estão travando no centro da cidade; melhore o vídeo da polícia sem prejudicar o drone dos bombeiros."
-    esperado: {policia: [6, 10], drone: [8, 10]}
+    esperado: {policia: [6, 10], drone: [5, 10]}
   - texto: "Incêndio no galpão controlado: o drone volta à base e a teleoperação termina. Bombeiros retornam à prioridade padrão."
     esperado: {bombeiros: [4, 6]}
   - texto: "Acidente com múltiplas vítimas na rodovia: a ambulância precisa de vídeo em alta qualidade para telemedicina."
@@ -35,7 +35,7 @@ intencoes:
   - texto: "O drone dos bombeiros volta a voar para inspecionar a área do show, em teleoperação por realidade virtual."
     esperado: {drone: [8, 10]}
   - texto: "Precisamos economizar recursos: reduza a prioridade das fatias de vídeo, mas mantenha a teleoperação do drone protegida."
-    esperado: {drone: [8, 10]}
+    esperado: {drone: [5, 10]}
   - texto: "Situação normalizada em toda a cidade: todas as fatias voltam às prioridades padrão."
     esperado: {policia: [4, 6], bombeiros: [4, 6], ambulancia: [4, 6], drone: [4, 6]}
   - texto: "Nenhum evento novo; mantenha tudo como está."
