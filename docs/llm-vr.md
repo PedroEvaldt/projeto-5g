@@ -142,7 +142,7 @@ Foram cinco rodadas na ledzeppelin. Os CSVs estão em `metricas_scripts/resultad
 
 Seis execuções válidas, de ~15 min cada, rodadas à mão na ledzeppelin:
 
-| Condição | Execuções | Pasta (em `metricas_scripts/resultados/`) |
+| Condição | Execuções | Pasta (em `metricas_scripts/resultados/piloto/`, desde 01/11) |
 | --- | --- | --- |
 | L2, chave desligada | `scvrl2_off01`, `scvrl2_off02` | `scvr_l2/` |
 | L3, chave desligada | `scvrl3_off02`, `scvrl3_off03` | `scvr_l3/` |
@@ -214,16 +214,16 @@ CPU (núcleos) e banda (Mbps) médias de cada vitória, na janela em que o LLM s
 1. **O estrategista funciona com a VR:** 30 de 30 respostas válidas nas execuções, nos dois prompts.
 2. **O prompt que conhece a VR (L3) muda a decisão:** no incêndio, a L3 sobe o drone, e a L2 sobe o vídeo dos bombeiros.
 3. **A mudança não melhora nada:** a VR já fica 100% no SLA sem dar lance, então a prioridade do drone fica sem uso. Na L2, a prioridade vai para o vídeo dos bombeiros, que vence mais rodadas no incêndio.
-4. **Com piso e agente por SLA, informar o LLM sobre a VR é redundante.** É a 3ª contribuição candidata do plano, com sinal oposto ao esperado.
+4. **Com piso e agente por SLA, informar o LLM sobre a VR é redundante.** É a 4ª contribuição candidata do plano, com sinal oposto ao esperado.
 5. **A chave do inform** muda o peso das decisões do LLM no leilão, visivelmente na prioridade 10. **Na Fase 8, ela fica desligada** (decisão de 01/11), fiel ao artigo, para os resultados ficarem comparáveis aos dele. O bug e este teste entram no artigo como achado.
 
 ## Próximos passos
 
-- **Fechar a fase:** atualizar o `CLAUDE.md` (Estado) e o plano (Fase 7 cumprida, drone em 5 no SC-VR, os achados acima), e fazer a revisão arquivo por arquivo.
+- **Fase fechada (01/11):** `CLAUDE.md` (Estado) e plano (Fase 7 cumprida, achados, preparação da Fase 8) atualizados.
 - **Antes da Fase 8:**
   - a conferência dos clientes de vídeo no `run_experiment_tmux.sh`;
-  - os YAMLs que faltam (o L0 do H-VR, o cenário M e a configuração E);
-  - mover as execuções piloto para `resultados/piloto/`, para não entrarem nas figuras da Fase 8.
+  - o YAML do L0 do H-VR (a configuração E fica de fora, decisão de 01/11);
+  - ~~mover as execuções piloto para `resultados/piloto/`~~ feito em 01/11, nas três máquinas (Fases 4 a 7; `calibracao/` e `fase7_llm/` ficaram no lugar).
 
 ### Como rodar uma execução com a chave ligada
 
