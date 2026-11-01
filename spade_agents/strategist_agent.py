@@ -70,14 +70,19 @@ class DispatcherAgent(Agent):
         async def run(self):
             msg = await self.receive(timeout=10)
             if msg:
+                # Phase 7: only known slices, with the priority clamped to [1, 10] (politica_llm.validar)
                 try:
-                    # Phase 7: only known slices, with the priority clamped to [1, 10] (politica_llm.validar)
-                    policy_updates, discarded = politica_llm.validar(msg.body, LLM_SLICES)
-                    log_decisions(policy_updates, discarded)
-                    for d in discarded:
-                        print(f"⚠️ [Dispatcher] Discarded {d['item']}: {d['motivo']}")
-
-                    print("🔄 [Dispatcher] Sending new policies to slice agents...")
+                    policy_updates, discarded = politica_llm.validar(msg.body or "", LLM_SLICES)
+                except Exception as e:
+                    print(f"❌ [Dispatcher] Error while validating the LLM answer: {e}")
+                    return
+                for d in discarded:
+                    print(f"⚠️ [Dispatcher] Discarded {d['item']}: {d['motivo']}")
+                try:
+                    if not policy_updates:
+                        print("⏸️ [Dispatcher] Nothing to send: no valid update in the LLM answer.\n")
+                    else:
+                        print("🔄 [Dispatcher] Sending new policies to slice agents...")
 
                     for update in policy_updates:
                         target_slice = update["fatia"] + "_slice@localhost"
@@ -89,9 +94,15 @@ class DispatcherAgent(Agent):
                         await self.send(msg)
                         clamped = f" (the LLM asked {update['ajuste']})" if update["ajuste"] else ""
                         print(f"📤 Dispatched new priority {update['prioridade']}{clamped} to {update['fatia']} with reasoning: {update['motivo']}")
-                    print("✅ [Dispatcher] All slices updated!\n")
+                    if policy_updates:
+                        print("✅ [Dispatcher] All slices updated!\n")
                 except Exception as e:
                     print(f"❌ [Dispatcher] Error while sending policies: {e}")
+                # After sending: a failure writing the log must not keep the decision from reaching the slices
+                try:
+                    log_decisions(policy_updates, discarded)
+                except Exception as e:
+                    print(f"❌ [Dispatcher] Error while writing {DECISIONS_CSV}: {e}")
 
     async def setup(self):
         print("📡 Starting Dispatcher Agent...")
