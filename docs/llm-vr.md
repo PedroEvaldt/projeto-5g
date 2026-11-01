@@ -1,28 +1,23 @@
-# O LLM com a VR (Fase 7) — em andamento
+# O LLM com a VR (Fase 7)
 
 **Pergunta da fase:** o estrategista (LLM) do artigo continua funcionando com uma fatia de VR, e o prompt que conhece a VR (L3) muda o que ele decide em relação ao prompt do artigo (L2)?
 
-## Onde parei (31/10/2026)
+## Onde parei (01/11/2026)
 
 - **Pronto e commitado:** o código, os testes sem LLM (38 no total: 12 do LLM, 16 do agente da VR, 10 do leilão), os YAMLs do cenário SC-VR e o teste das 20 intenções. Tudo está descrito em "O que foi construído", abaixo.
 - **Decidido:** o drone começa com prioridade 5 (seção "A prioridade inicial do drone").
-- **Rodado na ledzeppelin:** o teste das 20 intenções. Com o drone em 10: L3 e L2 numa conversa só, e L3 isolada. Com o drone em 5: L3 numa conversa só e isolada (resultados em "O teste das 20 intenções").
-- **Falta, em ordem:**
-  1. decidir se o par da chave `bidding.inform_updates_priority` (ligada e desligada) roda só na L3 ou também na L2 (ver "A chave do inform no SC-VR");
-  2. rodar as execuções do SC-VR;
-  3. pós-execução, trazer as pastas e analisar;
-  4. fechar a fase: terminar este doc, `CLAUDE.md` (Estado), plano (Fase 7 cumprida, com os achados) e revisão arquivo por arquivo.
+- **Rodado na ledzeppelin:** o teste das 20 intenções (5 rodadas) e 6 execuções válidas do SC-VR: L2 e L3 com a chave do inform desligada (2 de cada) e ligada (1 de cada). Resultados em "As execuções do SC-VR" e "Conclusão da fase".
+- **Falta:** atualizar o `CLAUDE.md` (Estado) e o plano, e a revisão arquivo por arquivo. Os dois arquivos não estão neste PC (ver "Para retomar em outro computador").
 
-Os comandos de cada passo estão em "Próximos passos".
+## Decisões tomadas na fase (Pedro, 30/10 a 01/11/2026)
 
-## Decisões tomadas na fase (Pedro, 30 e 31/10/2026)
-
-- **Bug do `inform`:** fica atrás de uma chave no YAML, `bidding.inform_updates_priority`, com o padrão desligado (como no artigo). Ele será testado ligado e desligado.
+- **Bug do `inform`:** fica atrás de uma chave no YAML, `bidding.inform_updates_priority`, com o padrão desligado (como no artigo). Foi testado ligado e desligado, na L2 e na L3 (01/11).
   - **O bug:** quando o LLM manda uma prioridade nova, o agente de vídeo atualiza o lance-base, a renda e a carteira, mas não o `priority`. É o `priority` que decide o tamanho do pedido (`calculate_coeff`). Desligada, o LLM muda quanto a fatia paga, mas não quanto ela pede.
   - **Só afeta as fatias de vídeo.** O agente da VR por SLA (`VRSliceAgent.propose_by_sla`) não usa o `priority`: passa o lance-base e a carteira ao `agente_vr.decidir`, e o tamanho do pedido sai do SLA e do piso. Para o drone, a prioridade do LLM muda só quanto ele paga, com a chave ligada ou desligada.
 - **A fatia de VR do SC-VR se chama `drone`:** o drone dos bombeiros, na `upf4`, com o UE `ue-vr-07`.
 - **As execuções no cluster ficam para o fim da fase,** feitas pelo Pedro.
 - **O drone começa com prioridade 5** (31/10), igual às outras fatias da cidade inteligente. Ver "A prioridade inicial do drone".
+- **Na Fase 8, a chave do inform fica desligada** (01/11), fiel ao artigo. Ver "A chave do inform".
 
 ## O que foi construído
 
@@ -143,48 +138,111 @@ Foram cinco rodadas na ledzeppelin. Os CSVs estão em `metricas_scripts/resultad
 
 **Recomendação de não mexer no prompt da L3** por causa das recusas ou do Achado 2. Hoje a L3 é o texto do artigo mais a descrição da VR. Uma instrução a mais vira uma segunda diferença entre L2 e L3, e as recusas não chegam às fatias.
 
-## A chave do inform no SC-VR
+## As execuções do SC-VR (31/10 e 01/11/2026)
 
-O que o teste das intenções antecipa para o experimento (as 4 primeiras intenções da conversa só, nos tempos do SC-VR):
+Seis execuções válidas, de ~15 min cada, rodadas à mão na ledzeppelin:
 
-| Tempo | L2 | L3 (drone em 5) |
+| Condição | Execuções | Pasta (em `metricas_scripts/resultados/`) |
 | --- | --- | --- |
-| 180 s, incêndio | bombeiros → 8 | drone → 9; bombeiros ficam em 5 |
-| 420 s, perseguição | polícia sobe | polícia → 8,5 |
-| 600 s, resgate | ambulância → 10 | ambulância → 10; bombeiros 5; o drone fica em 9 |
-| 700 s, detidos | polícia → 5 | polícia → 5 |
+| L2, chave desligada | `scvrl2_off01`, `scvrl2_off02` | `scvr_l2/` |
+| L3, chave desligada | `scvrl3_off02`, `scvrl3_off03` | `scvr_l3/` |
+| L2, chave ligada | `scvrl2_on03` | `scvr_l2_inform/` |
+| L3, chave ligada | `scvrl3_on03` | `scvr_l3_inform/` |
 
-- A chave `bidding.inform_updates_priority` só age no vídeo. **Na L3, o vídeo dos bombeiros não muda no incêndio,** então a chave só pesa na polícia (420 s) e na ambulância (600 s).
-- **Quem mais sentiria a chave é a L2,** onde os bombeiros sobem para 8 no incêndio.
-- **Decisão pendente:** rodar o par ligada/desligada só na L3 (o que está no plano) ou também na L2.
+- **Nomes:** a `scvrl2_off02` e a `scvrl3_off03` foram rodadas como `on02`, mas o `sed` que liga a chave não tinha sido aplicado (o `_run_*_on02.yaml` tem `inform_updates_priority: false`). Foram renomeadas; o `test_events.csv` delas ainda aponta para o `_run_*_on02.yaml`.
+- **Descartadas e apagadas:** `scvrl3_off01`, `scvrl2_on01` e `scvrl3_on01`. Nelas, os clientes de vídeo de uma ou mais fatias não tocaram nada (0 kbps na UPF o teste inteiro). Ver "Problemas do testbed".
+- **Pós-execução:** só a `scvrl2_off01` tem o `fetch_prometheus.py`, o `resumo.txt` e o `analise/`. As outras têm os CSVs da execução e o `qoe_vr_timeseries.csv`; os números abaixo saem deles.
 
-## Próximos passos (comandos)
+### O LLM: 30 de 30 respostas válidas, e a L3 muda a decisão do incêndio
 
-Cada execução leva ~16 min. Nomes novos a cada execução: um nome repetido sobrescreve o `tests_configs/_run_<nome>.yaml`.
+| Tempo | Intenção | L2 (as 3 execuções) | L3 (as 3 execuções) |
+| --- | --- | --- | --- |
+| 180 s | incêndio | **bombeiros → 9, 8, 9** | **drone → 9, 9, 8**; bombeiros ficam em 5 |
+| 420 s | perseguição | polícia → 8,5, 9, 9 | polícia → 8,5, 8, 8,5 |
+| 600 s | resgate | ambulância → 10, bombeiros → 5 | ambulância → 10, bombeiros → 5 |
+| 700 s | detidos | polícia → 5 | polícia → 5 |
+
+Igual ao teste das intenções. Nenhuma resposta foi descartada pelo `validar`.
+
+### A VR: 100% no SLA nas seis, sem dar lance
+
+- **No SLA:** 32 ou 33 janelas de 32 ou 33, em todas. O `net_p95` mediano fica entre 2,35 e 2,61 ms (limite 4,87); o maior de todos foi 3,64 ms (`scvrl3_on03`).
+- **O drone não deu lance nenhuma vez** em nenhuma das seis: lance 0 em todas as rodadas, nenhuma vitória. Enquanto ativo (180 a 600 s), ficou exatamente no piso (0,28 núcleo, 9,9 Mbps); fora, no mínimo (0,01 núcleo, 1 Mbps).
+- **Consequência:** a prioridade 9 que a L3 dá ao drone não tem efeito. O agente por SLA só dá lance quando a VR se aproxima do limite do SLA, e com o piso isso não acontece. A prioridade só escalaria o lance.
+- **Ainda pendente da Fase 6:** uma rodada vencida com lance 0. Não aconteceu, porque a VR nunca disputou.
+
+### O vídeo dos bombeiros: L2 × L3, com a chave desligada
+
+Bitrate médio (Mbps) e vitórias no leilão:
+
+| | 180–420 s (incêndio) | vitórias em 180–420 s | 420–600 s |
+| --- | --- | --- | --- |
+| L2 `off01` | 6,43 | 6 de 8 | 7,76 |
+| L2 `off02` | 5,72 | 4 de 8 | 4,17 |
+| L3 `off02` | 5,70 | 3 de 8 | 4,85 |
+| L3 `off03` | 5,61 | 3 de 8 | 5,10 |
+
+- **No leilão, a diferença é clara:** com prioridade 9, os bombeiros da L2 vencem mais rodadas no incêndio (6 e 4 de 8, contra 3 e 3).
+- **No bitrate, ela fica dentro do ruído:** as duas execuções iguais da L2 diferem em 3,6 Mbps entre 420 e 600 s. A tendência é a favor da L2, mas o tamanho só sai com as execuções da Fase 8.
+
+### A chave do inform (uma execução de cada)
+
+Com a chave ligada, a prioridade do LLM também muda o tamanho do pedido do vídeo (`calculate_coeff`). O fator vai de 0,5 (prioridade 5) a 0,76 (prioridade 9) e 1,0 (prioridade 10).
+
+CPU (núcleos) e banda (Mbps) médias de cada vitória, na janela em que o LLM subiu a fatia:
+
+| | bombeiros, 180–420 s (prioridade 8–9 na L2; 5 na L3) | polícia, 420–700 s (8–9) | ambulância, 600–900 s (10) |
+| --- | --- | --- | --- |
+| L2 desligada (`off01`, `off02`) | 0,21 e 0,17 / 13,6 e 12,7 | 0,15 e 0,17 / 11,8 e 13,0 | 0,17 e 0,17 / 10,1 e 12,7 |
+| **L2 ligada (`on03`)** | 0,14 / 9,8 | 0,20 / 13,4 | **0,30 / 21,6** |
+| L3 desligada (`off02`, `off03`) | 0,18 e 0,18 / 13,6 e 12,9 | 0,20 e 0,18 / 11,7 e 10,0 | 0,17 e 0,22 / 11,2 e 14,6 |
+| **L3 ligada (`on03`)** | 0,18 / 11,8 | 0,25 / 15,4 | **0,23 / 16,0** |
+
+- **A chave funciona e aparece onde a prioridade é alta:** com a ambulância em 10, as vitórias dela pedem e levam mais (até 21,6 Mbps contra 10 a 15 desligada). O bitrate da ambulância entre 700 e 900 s foi de 14,3 (L2) e 11,4 Mbps (L3) com a chave ligada, contra 5 a 9,5 desligada.
+- **O custo vai para as outras fatias:** na `scvrl2_on03`, os bombeiros caíram para 1,7 Mbps entre 700 e 900 s.
+- **Em prioridades intermediárias (8 e 9),** o efeito é pequeno e fica dentro da variação entre execuções. Com os bombeiros na L2 ligada, o pedido até saiu menor, porque ele depende também da faixa de estresse da fatia.
+- **Para a VR, a chave não muda nada:** 100% no SLA nas duas execuções ligadas, como esperado (o agente da VR não usa o `priority`).
+- **Leitura:** com a chave ligada, as decisões do LLM pesam mais no leilão. Quem chega a 10 leva bem mais recursos, à custa dos outros. O bug do artigo deixava as intenções do LLM com efeito menor do que o texto do artigo sugere.
+
+### Problemas do testbed encontrados na fase
+
+- **Clientes de vídeo que não sobem depois do restart.** Em 3 das 9 execuções, o `dash-client` de uma ou mais fatias não produziu nenhuma linha `[STATUS 5s]` em 15 min, e a UPF da fatia ficou em 0 kbps. A falha mudou de fatia a cada execução. O cliente espera a `uesimtun0` para sempre e não avisa. A causa não foi confirmada (os pods que falharam já tinham sido substituídos quando os logs foram olhados). **Antes da Fase 8:** pôr no `run_experiment_tmux.sh` uma conferência que aborte a execução se algum cliente não tocar em ~2 min.
+- **Uma UPF com o mínimo do leilão perde o PFCP.** Em 01/11, entre execuções, a `upf4` estava com 10m de CPU e 1 Mbps (o mínimo, que ela recebe quando o drone sai). Os logs da `upf4` e do SMF mostravam o vínculo PFCP caindo e voltando ("No Heartbeat from SMF", "PFCP de-associated"), e o UE da VR sem `uesimtun0`, recebendo `PDU Session Establishment Reject [NETWORK_FAILURE]` a cada 7,5 s. Nas execuções isso não pesa, porque o `upf_set_resources.py` devolve 0,2 núcleo no começo e o piso volta na entrada do drone. É um candidato a causa das falhas de vídeo (uma UPF de vídeo também pode chegar ao mínimo) e é o que o L0 da Fase 8 deve mostrar: o mínimo global não reduz a qualidade, ele derruba a sessão.
+
+## Conclusão da fase
+
+1. **O estrategista funciona com a VR:** 30 de 30 respostas válidas nas execuções, nos dois prompts.
+2. **O prompt que conhece a VR (L3) muda a decisão:** no incêndio, a L3 sobe o drone, e a L2 sobe o vídeo dos bombeiros.
+3. **A mudança não melhora nada:** a VR já fica 100% no SLA sem dar lance, então a prioridade do drone fica sem uso. Na L2, a prioridade vai para o vídeo dos bombeiros, que vence mais rodadas no incêndio.
+4. **Com piso e agente por SLA, informar o LLM sobre a VR é redundante.** É a 3ª contribuição candidata do plano, com sinal oposto ao esperado.
+5. **A chave do inform** muda o peso das decisões do LLM no leilão, visivelmente na prioridade 10. **Na Fase 8, ela fica desligada** (decisão de 01/11), fiel ao artigo, para os resultados ficarem comparáveis aos dele. O bug e este teste entram no artigo como achado.
+
+## Próximos passos
+
+- **Fechar a fase:** atualizar o `CLAUDE.md` (Estado) e o plano (Fase 7 cumprida, drone em 5 no SC-VR, os achados acima), e fazer a revisão arquivo por arquivo.
+- **Antes da Fase 8:**
+  - a conferência dos clientes de vídeo no `run_experiment_tmux.sh`;
+  - os YAMLs que faltam (o L0 do H-VR, o cenário M e a configuração E);
+  - mover as execuções piloto para `resultados/piloto/`, para não entrarem nas figuras da Fase 8.
+
+### Como rodar uma execução com a chave ligada
 
 ```bash
-# L3, chave desligada (o padrão do artigo)
-./run_experiment_tmux.sh tests_configs/test_config_scvr_l3.yaml scvrl3_off01
-
-# L3, chave ligada, numa pasta própria (para não se misturar com a desligada nas figuras)
 sed -i -e 's/^  inform_updates_priority: false/  inform_updates_priority: true/' -e 's#resultados/scvr_l3/#resultados/scvr_l3_inform/#' tests_configs/test_config_scvr_l3.yaml
-./run_experiment_tmux.sh tests_configs/test_config_scvr_l3.yaml scvrl3_on01
-git checkout tests_configs/test_config_scvr_l3.yaml      # depois do pós-execução: volta o YAML ao commitado
-
-# L2, chave desligada (a linha de base da comparação L2 × L3)
-./run_experiment_tmux.sh tests_configs/test_config_scvr_l2.yaml scvrl2_off01
-
-# L2, chave ligada (se a decisão for rodar o par também na L2)
-sed -i -e 's/^  inform_updates_priority: false/  inform_updates_priority: true/' -e 's#resultados/scvr_l2/#resultados/scvr_l2_inform/#' tests_configs/test_config_scvr_l2.yaml
-./run_experiment_tmux.sh tests_configs/test_config_scvr_l2.yaml scvrl2_on01
-git checkout tests_configs/test_config_scvr_l2.yaml
+grep -n -E "inform_updates_priority|csv_output_dir" tests_configs/test_config_scvr_l3.yaml   # tem de mostrar true e scvr_l3_inform; senão, não rode
+./run_experiment_tmux.sh tests_configs/test_config_scvr_l3.yaml scvrl3_onNN
+git checkout tests_configs/test_config_scvr_l3.yaml      # pode ser logo depois: o run_experiment já copiou o YAML para o _run_<nome>.yaml
 ```
 
-O pós-execução é o de sempre (`docs/coleta-vr.md`); o coletor da VR já roda sozinho no fim. O que olhar nas execuções:
-- **`llm_decisoes.csv`:** o que o LLM decidiu em 180, 420, 600 e 700 s. Na L3, ele sobe o drone no incêndio, como no teste das intenções?
-- **Janela `slices`:** as linhas `Received new priority`. Com a chave ligada, aparece também `Priority used in the requests`.
-- **VR:** % das janelas no SLA, e se ela vence alguma rodada com lance 0. É a confirmação, ainda pendente da Fase 6, de que o lance 0 sem pedido funciona no cluster.
-- **Vídeo:** o bitrate dos bombeiros depois do incêndio (L2 × L3) e o da polícia e da ambulância com a chave ligada e desligada.
+Uns 2 min depois de subir qualquer execução, confira se os 3 clientes de vídeo estão tocando:
+
+```bash
+for d in ue-video-01 ue-video-03 ue-video-05; do echo "== $d"; kubectl exec deploy/$d -n pfsevaldt -c ue -- ip -br addr show uesimtun0; kubectl logs deploy/$d -n pfsevaldt -c dash-client --tail=1; done
+```
+
+Cada um tem de mostrar a `uesimtun0` e uma linha `[STATUS 5s] ... Bitrate: <número> kbps`. Se algum falhar, mate a sessão e rode de novo com outro nome.
+
+- **Para trazer as pastas ao PC:** a ledzeppelin não tem `rsync`. Use `ssh -o ClearAllForwardings=yes k8s-inf 'cd ~/dev/projeto-5g/metricas_scripts/resultados && tar cf - <pasta>' | tar xf -`, de dentro de `metricas_scripts/resultados/` no PC.
 
 ## Para retomar em outro computador
 

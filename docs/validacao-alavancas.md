@@ -18,7 +18,7 @@ venv/bin/python vr/validar_banda.py           # muda a banda da upf4 no meio de 
 bash vr/subir_teste_banda.sh --remover        # apaga o UE e o servidor de iperf (o assinante fica)
 ```
 
-Os CSVs ficam em `metricas_scripts/resultados/validacao/` (fora do git).
+Os scripts gravariam CSVs em `metricas_scripts/resultados/validacao/` (fora do git), mas essa pasta não foi guardada: em 01/11/2026 ela não existia nem no PC nem na ledzeppelin. Os números desta página são os únicos registros da Fase 1. Para ter os CSVs (por exemplo, para uma figura), rode os scripts de novo.
 
 ## CPU (resize)
 
