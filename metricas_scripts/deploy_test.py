@@ -244,7 +244,7 @@ class TestOrchestrator:
         """VR_JOIN / VR_LEAVE (Fase 5), como uma reserva de recursos:
         - entrada: avisa o leiloeiro, espera ele aplicar o piso da VR (rodada extra) e só então retoma o tráfego;
         - saída: pausa o tráfego e só então avisa o leiloeiro, que libera o piso.
-        Em L0 (vr.floor: off) o leiloeiro responde na hora, sem mudar nada."""
+        Em L0 (vr.floor: off) a entrada responde na hora, sem piso; a saída libera o que a VR tinha, como na L1."""
         tipo = "VR_JOIN" if entrar else "VR_LEAVE"
         corpo = json.dumps({"fatia": slice_name})
         try:

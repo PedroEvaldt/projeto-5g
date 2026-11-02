@@ -37,7 +37,8 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 
 # Phase 5: per-slice floors (default = the global minimums, so a video-only YAML behaves as before).
 # The VR slice (tipo: vr) has a conditional floor: it only holds while the VR is active (VR_JOIN/VR_LEAVE),
-# and comes from vr/calibracao.yaml unless the slice sets floor_cpu/floor_bw. vr.floor: off (L0) disables it.
+# and comes from vr/calibracao.yaml unless the slice sets floor_cpu/floor_bw. vr.floor: off (L0) disables it
+# (the VR_LEAVE still releases what the VR had; see VRJoinLeave).
 MINIMOS = {"cpu": MINIMUM_CPU, "bw": MINIMUM_BW, "mem": MINIMUM_MEMORY}
 POOL = {"cpu": CORE_CPU_LIMIT, "bw": CORE_BW_LIMIT, "mem": CORE_MEMORY_LIMIT}
 CALIBRACAO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vr", "calibracao.yaml")
@@ -257,8 +258,11 @@ class ResourceAgent(Agent):
                 print(f"[VR] Ignoring {msg.get_metadata('performative')} for '{name}': not a VR slice in the YAML.")
                 await self.ack(msg, name, joined, False, f"'{name}' is not a VR slice in the YAML")
                 return
-            if not VR_FLOOR_ON:     # L0: nothing to apply, so no need to wait for a running round
-                print(f"[VR] {name} {'joined' if joined else 'left'}; vr.floor is off (L0): the auction changes nothing.")
+            # L0: the join applies no floor (no need to wait for a running round). The leave still releases what the
+            # VR had, as in L1: otherwise it would keep what it won in the warm-up rounds and never enter a full
+            # network, and L0 would differ from L1 in more than the floor.
+            if joined and not VR_FLOOR_ON:
+                print(f"[VR] {name} joined; vr.floor is off (L0): no floor, the auction changes nothing.")
                 await self.ack(msg, name, joined, False, "vr.floor off (L0)")
                 return
             async with ag.lock:

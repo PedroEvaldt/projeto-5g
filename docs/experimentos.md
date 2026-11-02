@@ -12,7 +12,7 @@
 
 - **Fixo em todas:** chave do inform desligada (`bidding.inform_updates_priority: false`) e drone com prioridade inicial 5 no SC-VR (Fase 7). A fila confere isso nos YAMLs antes de começar e não roda se estiver diferente.
 - **Fora:** a configuração estática (E) e o cenário misto (M), por decisão de 01/11/2026.
-- **A L0** é a L1 (`test_config_hvr.yaml`) com `vr.floor: off` e nada mais. O agente da VR continua por utilização, porque a L0 é "o sistema do artigo com a VR como mais uma fatia".
+- **A L0** é a L1 (`test_config_hvr.yaml`) com `vr.floor: off` e nada mais. O agente da VR continua por utilização, porque a L0 é "o sistema do artigo com a VR como mais uma fatia". Sem piso, a entrada da VR não muda nada no leilão; a saída libera o que ela tinha, como na L1 (até 02/11/2026 a saída também era ignorada, e a VR ficava com a CPU que ganhou nas rodadas de aquecimento e nunca entrava numa rede cheia: o 1º ciclo foi refeito por isso).
 
 ## Como rodar
 
