@@ -123,8 +123,10 @@ if leilao is not None:
         leilao = leilao[(hora >= inicio) & (hora <= fim)]
         print(f"Só as rodadas do teste: {leilao['Auction_ID'].nunique()} de {total} no arquivo "
               f"(as outras são de antes do início ou de depois do fim)\n")
+    # Rodadas e lances só das linhas de lance: as do piso (FLOOR_JOIN/LEAVE/DONOR) caem na rodada em curso e,
+    # logo depois do TEST_START, fariam a rodada de aquecimento contar como uma rodada com um lance só.
+    lances = leilao[leilao["Result"].isin(["WINNER", "LOSER"])]
     res = leilao.groupby("Agent").agg(
-        rodadas=("Auction_ID", "nunique"),
         vitorias=("Result", lambda r: (r == "WINNER").sum()),
         lance_medio=("Bid_Value", "mean"),
         total_pago=("Price_Paid", "sum"),
@@ -133,9 +135,10 @@ if leilao is not None:
         banda_media_mbps=("BW_Allocated", "mean"),
         banda_min_mbps=("BW_Allocated", "min"),
     )
+    res.insert(0, "rodadas", lances.groupby("Agent")["Auction_ID"].nunique())
     print(res.round(2).to_string())
-    lances_por_rodada = leilao.groupby("Auction_ID")["Agent"].nunique()
-    incompletas = (lances_por_rodada < leilao["Agent"].nunique()).sum()
+    lances_por_rodada = lances.groupby("Auction_ID")["Agent"].nunique()
+    incompletas = (lances_por_rodada < lances["Agent"].nunique()).sum()
     print(f"\nRodadas: {len(lances_por_rodada)}  |  rodadas com menos lances que fatias: {incompletas}")
 
 if vr is not None:
