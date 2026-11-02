@@ -6,7 +6,7 @@
 #   - o bloco vr: piso condicional ligado e agente por SLA (L2; o test_config_hvr.yaml é a L1);
 #   - os eventos da VR (vr_leave/vr_join) intercalados com os do vídeo, como no plano (cenário H-VR).
 # O piso da VR vem do vr/calibracao.yaml (CPU 0,28 e banda 9,9), a não ser que a fatia defina floor_cpu/floor_bw.
-# Para L0 (sem piso): copiar este arquivo, trocar vr.floor para off e a pasta de saída para .../hvr_l0/.
+# A L0 é o test_config_hvr_l0.yaml (cópia da L1, com o agente por utilização), não uma cópia deste.
 
 # Metadados do teste
 test_metadata:
