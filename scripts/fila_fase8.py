@@ -109,6 +109,17 @@ def conferir_preparo():
         for nome, s in c["slices"].items():
             if comb.startswith("scvr") and s.get("tipo") == "vr" and float(s["initial_priority"]) != DRONE_PRIORIDADE:
                 erros.append(f"{arq}: {nome} com prioridade inicial {s['initial_priority']}, a Fase 8 usa {DRONE_PRIORIDADE}")
+    # Os clientes de vídeo com RollingUpdate ficam com o IMSI duplicado no restart, e o AMF às vezes perde o UE novo
+    videos = sorted({s["client_pod"] for _, _, arq, _ in COMBINACOES
+                     for s in yaml.safe_load(open(REPO / arq))["slices"].values() if s.get("tipo", "video") != "vr"})
+    r = subprocess.run(["kubectl", "get", "deployment", *videos, "-n", "pfsevaldt", "-o",
+                        "jsonpath={range .items[*]}{.metadata.name}={.spec.strategy.type} {end}"],
+                       capture_output=True, text=True)
+    errados = [d for d in r.stdout.split() if not d.endswith("=Recreate")]
+    if r.returncode != 0:
+        erros.append(f"não consegui ler os deployments de vídeo: {r.stderr.strip()}")
+    elif errados:
+        erros.append(f"clientes de vídeo sem strategy Recreate ({' '.join(errados)}): ver docs/experimentos.md")
     sessoes = subprocess.run(["tmux", "ls"], capture_output=True, text=True).stdout
     if any(l.startswith("exp_") for l in sessoes.splitlines()):
         erros.append("há uma execução aberta (tmux ls mostra exp_...): feche-a antes")

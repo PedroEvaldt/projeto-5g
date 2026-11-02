@@ -16,6 +16,15 @@
 
 ## Como rodar
 
+**Uma vez, antes da 1ª execução:** os clientes de vídeo têm de usar a estratégia `Recreate`. O `videoclients-script.sh` já cria assim; os deployments que estão no ar foram criados antes e precisam do patch. A fila confere isso e não começa sem ele.
+
+```bash
+for d in ue-video-01 ue-video-03 ue-video-05; do kubectl patch deployment $d -n pfsevaldt --type=merge -p '{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}'; done   # o restart passa a matar o pod antigo antes de subir o novo
+kubectl get deployment ue-video-01 ue-video-03 ue-video-05 -n pfsevaldt -o jsonpath='{range .items[*]}{.metadata.name}={.spec.strategy.type} {end}{"\n"}'   # tem de mostrar =Recreate nos três
+```
+
+Por quê: com o `RollingUpdate` (o padrão), o `rollout restart` sobe o pod novo antes de apagar o antigo. Os dois ficam de pé com o mesmo IMSI, e o AMF às vezes para de encaminhar os pedidos de sessão do novo ("Holding NG Context", "Unknown UE by SUCI"). O UE fica sem `uesimtun0`, e o cliente de vídeo espera para sempre. É o mesmo problema que a VR teve na Fase 2. Visto ao vivo no `ue-video-03` em 02/11/2026.
+
 Na ledzeppelin, da raiz do repositório:
 
 ```bash
@@ -115,6 +124,7 @@ ssh -o ClearAllForwardings=yes k8s-inf 'cd ~/dev/projeto-5g/metricas_scripts/res
   Hipótese, ainda não testada: a anotação de banda do Calico vale para todo o tráfego do pod, inclusive o PFCP, e com 1 Mbps e o vídeo enchendo a fila, os heartbeats se perdem. A `upf4` no mínimo mostra o mesmo, mas lá o SMF percebe e reassocia sozinho.
 
   Também visto: as 3 UPFs de vídeo acumulam sessões (1800 a 2400, quase nenhuma removida) e logam "All IP addresses in all subnets are occupied" desde 30/10. Os clientes 01 e 05 tocam assim mesmo, então isso sozinho não bloqueia.
-- **Decisão do Pedro antes da 1ª execução:** como recuperar a `upf2` (reiniciar o pod?) e o que a fila faz se isso voltar a acontecer no meio dos ciclos.
-- **Depois:** o Pedro roda `./run_fase8.sh --ciclos 1` na ledzeppelin. As 5 execuções do 1º ciclo são analisadas antes de seguir.
+- **Recuperação (02/11/2026, decisão do Pedro):** os pods da `upf1`, `upf2` e `upf3` foram apagados e recriados pelos deployments. Depois do `upf_set_resources.py`, as três reassociaram o PFCP, e as sessões acumuladas zeraram. O `ue-video-03` continuou sem túnel, mas aí por **outra causa**: o IMSI duplicado no restart (ver "Como rodar"). O patch `Recreate` falta: é uma mudança no cluster, então o Pedro roda.
+- **Se uma UPF ficar presa sem PFCP durante os ciclos:** a fila não reinicia UPF sozinha. A conferência falha, e com 3 falhas seguidas a fila para. Para recuperar: `kubectl delete pod` da UPF presa, `upf_set_resources.py`, e retomar a fila.
+- **Depois do patch:** o Pedro roda `./run_fase8.sh --ciclos 1` na ledzeppelin. As 5 execuções do 1º ciclo são analisadas antes de seguir.
 - **Ainda por escrever, durante os ciclos:** o script único de análise (`analise_fase8.py`). Ele produz as tabelas e as figuras com média e intervalo de confiança de 95% por combinação.
