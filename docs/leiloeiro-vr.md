@@ -15,7 +15,7 @@
 | `spade_agents/test_leilao.py` (novo) | 10 testes sem cluster: equivalência com o leiloeiro antigo, pisos, rodada extra e liberação |
 | `spade_agents/resource_agent.py` | o leiloeiro usa o `leilao.py`; pisos por fatia; behaviour da entrada e saída da VR; uma trava única; período do YAML; Kubernetes em paralelo; coluna `CPU_Applied` |
 | `spade_agents/slice_agents.py` | Prometheus em paralelo; banda lida em "k"; chave `vr.agent` (por enquanto, só `utilizacao`) |
-| `metricas_scripts/deploy_test.py` | eventos `vr_join` e `vr_leave` (a reserva na entrada); retoma a VR no fim do teste |
+| `metricas_scripts/deploy_test.py` | eventos `vr_join` e `vr_leave` (a reserva na entrada); retoma a VR no fim do teste (desde 03/11/2026, pausa: ver docs/experimentos.md) |
 | `tests_configs/test_config_hvr.yaml` (novo) | o cenário H-VR em L1: o de vídeo de sempre + a fatia `vr` + os eventos da VR; saída em `resultados/hvr_l1/` |
 | `run_experiment_tmux.sh` | não reinicia o UE de VR; copia o log da VR (janela `vrlog`); roda o coletor da VR no fim |
 | `metricas_scripts/merge_auction_and_qoe.py` | o gráfico da VR para no fim do teste |
