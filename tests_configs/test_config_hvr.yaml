@@ -52,6 +52,7 @@ slices:
 vr:
   floor: on                    # piso condicional com rodada extra (L1, L2); off = sem piso (L0)
   agent: utilizacao            # utilizacao = L0 e L1; sla = L2 (Fase 6)
+  espera_saida_s: 5            # na saída, pausa e só libera depois disto: a upf4 esvazia a fila antes do corte
 
 # Parâmetros do leilão (Sincronizado com resource_agent.py)
 auction:

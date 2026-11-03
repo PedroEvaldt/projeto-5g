@@ -56,6 +56,7 @@ vr:
   floor: on                    # piso condicional com rodada extra; off = sem piso (L0)
   agent: sla                   # agente da VR por SLA (Fase 6); utilizacao = o agente do vídeo
   llm: vr                      # artigo = prompt do artigo, sem a VR (L2); vr = o prompt conhece a VR e o piso (L3)
+  espera_saida_s: 5            # na saída, pausa e só libera depois disto: a upf4 esvazia a fila antes do corte
   sla_agent:                   # o agente por SLA (spade_agents/agente_vr.py); estes são os padrões
     d_pedir: 0.5               # só pede recurso depois de gastar metade da folga do SLA
     throttling_min: 0.02       # fração dos períodos de 100 ms com a cota da upf4 esgotada para pedir CPU

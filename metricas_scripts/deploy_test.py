@@ -243,13 +243,15 @@ class TestOrchestrator:
     async def vr_event(self, slice_name, entrar, description):
         """VR_JOIN / VR_LEAVE (Fase 5), como uma reserva de recursos:
         - entrada: avisa o leiloeiro, espera ele aplicar o piso da VR (rodada extra) e só então retoma o tráfego;
-        - saída: pausa o tráfego e só então avisa o leiloeiro, que libera o piso.
+        - saída: pausa o tráfego, espera vr.espera_saida_s e só então avisa o leiloeiro, que libera o piso.
         Em L0 (vr.floor: off) a entrada responde na hora, sem piso; a saída libera o que a VR tinha, como na L1."""
         tipo = "VR_JOIN" if entrar else "VR_LEAVE"
         corpo = json.dumps({"fatia": slice_name})
+        # Cortar a upf4 para o mínimo com o fim do fluxo ainda na fila derruba o PFCP dela (docs/experimentos.md)
+        espera_saida = float((self.config.get('vr') or {}).get('espera_saida_s', 0))
         try:
             client_pod = self.config['slices'][slice_name]['client_pod']
-            reserva = ""
+            reserva = "" if entrar or not espera_saida else f"liberação {espera_saida:g} s depois da pausa"
             if entrar:
                 t0 = time.monotonic()
                 resposta = await self.notifier.ask_and_wait("resource_agent@localhost", "vr_join", corpo, "vr_ack", timeout=20)
@@ -271,18 +273,20 @@ class TestOrchestrator:
                 return
             self.log_event(tipo, description, f"pods={client_pod}" + (f" | {reserva}" if reserva else ""))
             if not entrar:
+                await asyncio.sleep(espera_saida)
                 await self.notifier.send_performative("resource_agent@localhost", "vr_leave", corpo)
         except Exception as e:
             print(f"[ERROR] Falha no {tipo} de {slice_name}: {e}")
             self.log_event(f"{tipo}_ERROR", f"Erro no {tipo} de {slice_name}", str(e))
 
-    async def retomar_vr(self):
-        """No fim do teste, retoma as VRs pausadas, para o testbed voltar ao normal (a VR medindo sempre).
+    async def pausar_vr(self):
+        """No fim do teste, pausa as VRs: entre execuções ela fica parada. Retomada aqui, ela entrava com a upf4
+        ainda no mínimo do leilão (e derrubava o PFCP); ativa, ela seguia até o corte do início da próxima.
         Não avisa o leiloeiro: o teste acabou."""
         for nome, s in self.config['slices'].items():
             if s.get('tipo') == 'vr':
-                erro = await asyncio.to_thread(self.sinal_vr, nome, "USR2")
-                print(f"[VR] {nome} retomada no fim do teste" + (f" (falhou: {erro})" if erro else ""))
+                erro = await asyncio.to_thread(self.sinal_vr, nome, "USR1")
+                print(f"[VR] {nome} pausada no fim do teste" + (f" (falhou: {erro})" if erro else ""))
 
     async def run(self):
         """Executa o teste seguindo os eventos programados."""
@@ -329,12 +333,12 @@ class TestOrchestrator:
                 await asyncio.sleep(5)
 
             self.log_event("TEST_END", "Teste finalizado", "")
-            await self.retomar_vr()
+            await self.pausar_vr()
             print("\n[SUCESSO] Teste concluído!")
 
         except KeyboardInterrupt:
             self.log_event("TEST_INTERRUPTED", "Teste interrompido pelo usuário", "")
-            await self.retomar_vr()
+            await self.pausar_vr()
             print("\n[INTERROMPIDO] Teste cancelado.")
 
         except Exception as e:
