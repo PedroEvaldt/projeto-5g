@@ -17,13 +17,18 @@ sem janelas na L0 é resultado, não falha: vira aviso. As regras:
               leiloeiro com menos de 80% das rodadas esperadas (agente caiu);
               sem qoe_vr_timeseries.csv, ou mais de 10% das janelas da VR com health=0 (instrumento da VR falhou);
               cenário com intenções e nenhuma resposta do LLM (servidor do LLM fora do ar);
-              uma UPF sem PFCP no TEST_END há mais de 30 s (o Open5GS travou e só volta recriando o pod; regra
-              de 03/11/2026, depois do incidente da hvrl0_02).
+              uma UPF sem PFCP no TEST_END há mais de 30 s (o Open5GS travou e só volta recriando o pod) e o
+              cliente dela sem sessão no fim (regra de 03/11/2026, depois do incidente da hvrl0_02; desde
+              04/11/2026 só descarta se o travamento chegou ao cliente, decisão do Pedro).
   - aviso:    janelas com health=0 (até 10%; ficam fora da conta do SLA); a VR sem janela por mais de 60 s enquanto
               ativa; um vídeo com os quadros parados por 60 s ou mais sem estar pausado; a VR vencendo com lance 0
               (conferência pendente da Fase 6); menos respostas do LLM que intenções; uma UPF sem PFCP por mais
-              de 60 s durante o teste, mesmo voltando sozinha.
+              de 60 s durante o teste, mesmo voltando sozinha; uma UPF presa no fim com a sessão do cliente de pé
+              (a sessão aberta passa dados sem o PFCP; a fila recria a UPF antes da execução seguinte).
 O PFCP vem do upf_pfcp.txt (scripts/pfcp_upf.py capturar, no fim de cada execução); sem ele, não é conferido.
+Só contam os eventos do nosso SMF (# smf= no arquivo): um SMF de fora também se associa à upf4 (03/11/2026).
+A sessão do cliente vem das linhas "sessao" do mesmo arquivo; sem elas (arquivos de antes de 04/11/2026 ou erro ao
+ler o log do SMF), a UPF presa no fim descarta, como antes.
 """
 import re
 import sys
@@ -41,6 +46,44 @@ BURACO_VR_S = 60          # VR ativa sem janela por mais que isso
 VIDEO_PARADO_S = 60       # quadros sem mudar, com o vídeo tocando, por mais que isso
 PFCP_PRESA_S = 30         # UPF sem PFCP no TEST_END há mais que isso: presa (as quedas normais voltam antes)
 PFCP_QUEDA_S = 60         # UPF sem PFCP por mais que isso durante o teste, mesmo voltando
+SESSAO_MIN_S = 10         # sessão que durou menos que isso foi recusada (com a UPF presa, o UE tenta a cada ~7,5 s)
+
+
+def dnn_da_upf(upf):
+    return f"slice{int(upf[3:]):02d}"                  # no configmap do smf, a upfN atende o DNN sliceNN
+
+
+def sessao_no_fim(evs, t_fim):
+    """O cliente de um DNN tinha sessão de pé no TEST_END? evs: [(t, 'criada'|'restaurada'|'removida', IP)] na
+    régua do teste, na ordem do log, inclusive depois do fim (para saber quanto durou a última sessão).
+    Cada DNN da execução tem um UE só, com uma sessão por vez: uma sessão nova quer dizer que a anterior acabou.
+    A sessão de antes da janela (a da VR, cujo UE as execuções não reiniciam) conta como de pé até ser removida."""
+    regs = [[None, None, None]]                        # [IP, criada, acabou]; o 1º é a sessão de antes da janela
+    for t, tipo, ip in evs:
+        abertas = [r for r in regs if r[2] is None]
+        mesma = next((r for r in abertas if r[0] == ip), None)
+        anterior = next((r for r in abertas if r[0] is None), None)
+        if tipo == "removida":
+            if mesma or anterior:
+                (mesma or anterior)[2] = t
+        elif tipo == "restaurada":                     # o SMF reinstala uma sessão que já existia
+            if not mesma and anterior:
+                anterior[0] = ip
+            elif not mesma:
+                regs.append([ip, t, None])
+        elif not mesma:                                # criada
+            for r in abertas:
+                r[2] = t
+            regs.append([ip, t, None])
+
+    def de_pe(r):
+        _, criada, acabou = r
+        if criada is not None and criada > t_fim:
+            return False
+        if acabou is not None and (acabou <= t_fim or (criada is not None and acabou - criada < SESSAO_MIN_S)):
+            return False
+        return True
+    return any(de_pe(r) for r in regs)
 
 
 def conferir_pfcp(texto, ev, dur):
@@ -54,11 +97,23 @@ def conferir_pfcp(texto, ev, dur):
     fim = ev.loc[ev["Event_Type"] == "TEST_END", "Timestamp_Offset_Seconds"]
     t_fim = float(fim.iloc[0]) if len(fim) else dur
     aviso += [f"PFCP: {l.lstrip('# ').strip()}" for l in texto.splitlines() if "erro ao ler o log" in l]
+    smf = re.search(r"^# smf=(\S+)", texto, re.M)
+    if not smf and re.search(r"^upf\S* \S+ \S+ \S+$", texto, re.M):
+        aviso.append("upf_pfcp.txt sem o IP do nosso SMF: contando os eventos de todos os SMFs")
+    com_sessoes = re.search(r"^# sessoes_smf=ok", texto, re.M)
+    sessoes = {}
     por_upf = {}
     for linha in texto.splitlines():
         partes = linha.split()
-        if len(partes) == 3 and not linha.startswith("#"):
-            por_upf.setdefault(partes[0], []).append(((pd.Timestamp(partes[1]) - t0).total_seconds(), partes[2]))
+        if partes[:1] == ["sessao"] and len(partes) == 6:
+            t = (pd.Timestamp(partes[1]) - t0).total_seconds()
+            sessoes.setdefault(partes[3], []).append((t, partes[2], partes[4]))
+            continue
+        if linha.startswith("#") or len(partes) not in (3, 4):
+            continue
+        if smf and len(partes) == 4 and partes[3] != smf.group(1):
+            continue                                    # outro SMF (os arquivos de antes de 04/11 não têm a coluna)
+        por_upf.setdefault(partes[0], []).append(((pd.Timestamp(partes[1]) - t0).total_seconds(), partes[2]))
     for upf, evs in sorted(por_upf.items()):
         desde = None                                    # início da queda em curso
         for t, estado in sorted(evs):
@@ -72,7 +127,13 @@ def conferir_pfcp(texto, ev, dur):
                     aviso.append(f"{upf} sem PFCP por {t - ini:.0f} s (T+{ini:.0f} s a T+{t:.0f} s)")
                 desde = None
         if desde is not None and t_fim - desde > PFCP_PRESA_S:
-            descartar.append(f"{upf} sem PFCP de T+{max(desde, 0.0):.0f} s até o fim do teste (Open5GS preso)")
+            queda = f"{upf} sem PFCP de T+{max(desde, 0.0):.0f} s até o fim do teste"
+            if not com_sessoes:                         # arquivo antigo ou erro ao ler o log do SMF: a regra antiga
+                descartar.append(f"{queda} (Open5GS preso)")
+            elif sessao_no_fim(sessoes.get(dnn_da_upf(upf), []), t_fim):
+                aviso.append(f"{queda} (a sessão do cliente seguiu de pé)")
+            else:
+                descartar.append(f"{queda}, e o cliente dela sem sessão no fim (Open5GS preso)")
     return descartar, aviso
 
 
