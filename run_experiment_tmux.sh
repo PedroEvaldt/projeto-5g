@@ -12,12 +12,12 @@
 # e cada execução ganha a sua pasta, sem sobrescrever as anteriores. O YAML usado vai junto (config.yaml).
 #
 # Antes de começar os eventos, confere os clientes (Fase 8): cada cliente de vídeo tem de mostrar um
-# [STATUS 5s] com bitrate > 0 e o UE de VR tem de ter a uesimtun0, em até CONFERENCIA_S (180 s). Se não,
-# fecha a sessão, grava o motivo em <pasta>/conferencia.txt e sai com 3.
+# [STATUS 5s] com bitrate > 0 e o túnel do UE de VR tem de levar até o vr-app-01 (ping pela uesimtun0), em até
+# CONFERENCIA_S (180 s). Se não, fecha a sessão, grava o motivo em <pasta>/conferencia.txt e sai com 3.
 #
 # Sem --completo, o script sobe tudo e volta (a execução segue no tmux). Com --completo, espera o fim,
-# guarda as janelas do tmux em <pasta>/janelas/, fecha a sessão, roda a pós-execução e o
-# conferir_execucao.py (<pasta>/veredito.txt). É o que a fila da Fase 8 (run_fase8.sh) usa.
+# guarda as janelas do tmux em <pasta>/janelas/ e o PFCP das UPFs em <pasta>/upf_pfcp.txt, fecha a sessão,
+# roda a pós-execução e o conferir_execucao.py (<pasta>/veredito.txt). É o que a fila da Fase 8 (run_fase8.sh) usa.
 # Saída: 0 = ok (ou aviso), 3 = conferência dos clientes falhou, 4 = não terminou no tempo,
 #        5 = conferir_execucao.py mandou descartar; outro código = erro ao subir.
 # =========================================================================
@@ -99,9 +99,12 @@ kubectl rollout restart $PODS -n "$NS"
 REINICIO=$SECONDS
 echo "4/6 Clientes reiniciados; conferindo se tocam (até $CONFERENCIA_S s)"
 
-# Conferência (Fase 8): o vídeo tocando e o túnel da VR de pé, antes dos eventos. Um cliente de vídeo
+# Conferência (Fase 8): o vídeo tocando e o túnel da VR funcionando, antes dos eventos. Um cliente de vídeo
 # pode não subir depois do restart (espera a uesimtun0 para sempre, sem avisar), e o UE de VR fica sem
-# túnel quando a upf4 passa um tempo no mínimo do leilão e perde o PFCP (volta ~20 s depois do reset).
+# túnel quando a upf4 perde o PFCP. A interface existir não basta: com a upf4 recriada, o túnel fica de pé
+# e não leva a lugar nenhum. O ping vai ao pod do vr-app-01 (o ClusterIP não responde a ping); a VR pausada não atrapalha.
+VR_SERVIDOR=""
+[ -n "$VR_POD" ] && VR_SERVIDOR=$(kubectl get pod -l app=vr-app-01 -n "$NS" -o jsonpath='{.items[0].status.podIP}' 2>/dev/null || true)
 pod_novo() {    # o pod do restart: o antigo segue de pé (e com o log da execução anterior) até o novo ficar pronto
     local quando
     quando=$(kubectl get deployment "$1" -n "$NS" -o jsonpath='{.spec.template.metadata.annotations.kubectl\.kubernetes\.io/restartedAt}')
@@ -122,8 +125,9 @@ faltando() {    # imprime o que ainda não está pronto; nada = tudo pronto
             echo -n "$d (vídeo sem [STATUS 5s] com bitrate > 0) "
         fi
     done
-    if [ -n "$VR_POD" ] && ! kubectl exec -n "$NS" "deploy/$VR_POD" -c ue -- ip -br addr show uesimtun0 >/dev/null 2>&1; then
-        echo -n "$VR_POD (VR sem uesimtun0) "
+    if [ -n "$VR_POD" ] && ! kubectl exec -n "$NS" "deploy/$VR_POD" -c ue -- \
+            ping -I uesimtun0 -c 2 -W 2 "${VR_SERVIDOR:-sem-ip-do-vr-app}" >/dev/null 2>&1; then
+        echo -n "$VR_POD (túnel da VR sem resposta do vr-app-01) "
     fi
 }
 while :; do
@@ -171,6 +175,8 @@ if [ $COMPLETO -eq 1 ]; then
         tmux capture-pane -p -S - -t "$SESSAO:$JANELA" > "$PASTA/janelas/$JANELA.txt" 2>/dev/null || true
     done
     tmux kill-session -t "$SESSAO" 2>/dev/null || true
+    # As quedas de PFCP das UPFs durante a execução: o log some quando o pod é recriado
+    "$PY" "$REPO/scripts/pfcp_upf.py" capturar "$PASTA" || echo "[FALHOU] pfcp_upf.py capturar"
     if [ $PRONTO -eq 0 ]; then
         echo "[ERRO] não terminou em $((DURACAO / 60 + 10)) min; sessão fechada, janelas em $PASTA_LOCAL/janelas/"; exit 4
     fi

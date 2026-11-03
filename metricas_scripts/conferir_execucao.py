@@ -16,11 +16,16 @@ sem janelas na L0 é resultado, não falha: vira aviso. As regras:
               um cliente de vídeo que nunca tocou ou com menos de 80% das amostras (coletor ou cliente morto);
               leiloeiro com menos de 80% das rodadas esperadas (agente caiu);
               sem qoe_vr_timeseries.csv, ou mais de 10% das janelas da VR com health=0 (instrumento da VR falhou);
-              cenário com intenções e nenhuma resposta do LLM (servidor do LLM fora do ar).
+              cenário com intenções e nenhuma resposta do LLM (servidor do LLM fora do ar);
+              uma UPF sem PFCP no TEST_END há mais de 30 s (o Open5GS travou e só volta recriando o pod; regra
+              de 03/11/2026, depois do incidente da hvrl0_02).
   - aviso:    janelas com health=0 (até 10%; ficam fora da conta do SLA); a VR sem janela por mais de 60 s enquanto
               ativa; um vídeo com os quadros parados por 60 s ou mais sem estar pausado; a VR vencendo com lance 0
-              (conferência pendente da Fase 6); menos respostas do LLM que intenções.
+              (conferência pendente da Fase 6); menos respostas do LLM que intenções; uma UPF sem PFCP por mais
+              de 60 s durante o teste, mesmo voltando sozinha.
+O PFCP vem do upf_pfcp.txt (scripts/pfcp_upf.py capturar, no fim de cada execução); sem ele, não é conferido.
 """
+import re
 import sys
 from pathlib import Path
 
@@ -34,6 +39,41 @@ MIN_FRACAO = 0.8          # amostras e rodadas: menos que isso é um processo qu
 MAX_HEALTH0 = 0.10        # fração de janelas da VR com health=0 acima da qual o instrumento não vale
 BURACO_VR_S = 60          # VR ativa sem janela por mais que isso
 VIDEO_PARADO_S = 60       # quadros sem mudar, com o vídeo tocando, por mais que isso
+PFCP_PRESA_S = 30         # UPF sem PFCP no TEST_END há mais que isso: presa (as quedas normais voltam antes)
+PFCP_QUEDA_S = 60         # UPF sem PFCP por mais que isso durante o teste, mesmo voltando
+
+
+def conferir_pfcp(texto, ev, dur):
+    """Quedas do PFCP de cada UPF, na régua do teste (segundos desde o TEST_START). Devolve (descartar, aviso)."""
+    descartar, aviso = [], []
+    dif = re.search(r"diferenca_s=(-?[\d.]+)", texto)
+    inicio = re.search(r"inicio=(\S+)", " ".join(ev.loc[ev["Event_Type"] == "TEST_START", "Details"].astype(str)))
+    if not (dif and inicio):
+        return [], ["upf_pfcp.txt sem a diferença de relógio ou test_events.csv sem o início: PFCP não conferido"]
+    t0 = pd.Timestamp(inicio.group(1)).tz_convert("UTC") + pd.Timedelta(seconds=float(dif.group(1)))  # no relógio do cluster
+    fim = ev.loc[ev["Event_Type"] == "TEST_END", "Timestamp_Offset_Seconds"]
+    t_fim = float(fim.iloc[0]) if len(fim) else dur
+    aviso += [f"PFCP: {l.lstrip('# ').strip()}" for l in texto.splitlines() if "erro ao ler o log" in l]
+    por_upf = {}
+    for linha in texto.splitlines():
+        partes = linha.split()
+        if len(partes) == 3 and not linha.startswith("#"):
+            por_upf.setdefault(partes[0], []).append(((pd.Timestamp(partes[1]) - t0).total_seconds(), partes[2]))
+    for upf, evs in sorted(por_upf.items()):
+        desde = None                                    # início da queda em curso
+        for t, estado in sorted(evs):
+            if t > t_fim:
+                break
+            if estado == "de-associated":
+                desde = t if desde is None else desde
+            elif desde is not None:
+                ini = max(desde, 0.0)
+                if t - ini > PFCP_QUEDA_S:
+                    aviso.append(f"{upf} sem PFCP por {t - ini:.0f} s (T+{ini:.0f} s a T+{t:.0f} s)")
+                desde = None
+        if desde is not None and t_fim - desde > PFCP_PRESA_S:
+            descartar.append(f"{upf} sem PFCP de T+{max(desde, 0.0):.0f} s até o fim do teste (Open5GS preso)")
+    return descartar, aviso
 
 
 def conferir(pasta):
@@ -133,6 +173,13 @@ def conferir(pasta):
             descartar.append(f"nenhuma resposta do LLM para {intencoes} intenções")
         elif respostas < intencoes:
             aviso.append(f"LLM respondeu {respostas} de {intencoes} intenções")
+
+    # PFCP das UPFs: as execuções de antes de 03/11/2026 não têm o arquivo
+    pfcp_arq = pasta / "upf_pfcp.txt"
+    if pfcp_arq.exists():
+        d, a = conferir_pfcp(pfcp_arq.read_text(), ev, dur)
+        descartar += d
+        aviso += a
     return descartar, aviso
 
 
