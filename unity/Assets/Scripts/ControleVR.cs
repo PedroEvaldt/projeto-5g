@@ -10,6 +10,7 @@
 //   VR_POSE_PORT     9300 (onde as poses chegam)
 //   VR_RENDER_DEST   127.0.0.1:9301 (para onde os quadros vão)
 //   VR_PNG_S         0 (> 0 salva um PNG a cada tantos segundos em VR_PNG_DIR, padrão /saida)
+//   VR_READBACK      async (padrão) | sync. sync espera a GPU terminar o quadro na hora: menos latência, alguns ms de espera
 
 using System;
 using System.Collections.Generic;
@@ -54,6 +55,7 @@ public class ControleVR : MonoBehaviour
         saida.destino = Env("VR_RENDER_DEST", "127.0.0.1:9301");
         saida.pngCadaS = float.Parse(Env("VR_PNG_S", "0"), System.Globalization.CultureInfo.InvariantCulture);
         saida.pngDir = Env("VR_PNG_DIR", "/saida");
+        saida.readbackSincrono = Env("VR_READBACK", "async") == "sync";
         saida.Iniciar(cam);
         // A câmera não renderiza sozinha: o Update chama cam.Render() depois de aplicar a pose. Assim o
         // render acontece sempre, inclusive com -batchmode, em que o player pula as câmeras automáticas.

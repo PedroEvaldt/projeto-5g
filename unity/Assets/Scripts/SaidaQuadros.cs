@@ -32,6 +32,7 @@ public class SaidaQuadros : MonoBehaviour
     public int bitrateKbps = 7000;                    // abaixo dos 7,74 Mbps que cabem em 14 x 1152 B a 60 fps
     public string destino = "127.0.0.1:9301";
     public float pngCadaS = 0f;                       // > 0: salva um PNG a cada tantos segundos, para conferir o modelo
+    public bool readbackSincrono = false;             // true: espera a GPU terminar o quadro na hora (menos latência, alguns ms de espera)
     public string pngDir = "/saida";
 
     // Contadores para o medidor (lidos da thread principal; int é atômico)
@@ -72,7 +73,7 @@ public class SaidaQuadros : MonoBehaviour
         if (codificador == "nvenc" || codificador == "x264") AbrirFfmpeg();
         escritor = new Thread(LacoEscritor) { IsBackground = true, Name = "escritor" };
         escritor.Start();
-        Debug.Log($"[saida] {largura}x{altura} codificador={codificador} {bitrateKbps} kbps -> {destino}" +
+        Debug.Log($"[saida] {largura}x{altura} codificador={codificador} {bitrateKbps} kbps readback={(readbackSincrono ? "sync" : "async")} -> {destino}" +
                   (pngCadaS > 0 ? $" png a cada {pngCadaS} s em {pngDir}" : ""));
     }
 
@@ -81,11 +82,12 @@ public class SaidaQuadros : MonoBehaviour
         int buf = Math.Max(50, bitrateKbps / 60 * 2);                     // ~2 quadros de buffer: CBR de verdade
         string enc = codificador == "nvenc"
             ? $"-c:v h264_nvenc -preset p1 -tune ull -rc cbr -b:v {bitrateKbps}k -maxrate {bitrateKbps}k -bufsize {buf}k " +
-              "-g 999999 -bf 0 -intra-refresh 1 -zerolatency 1"
+              "-g 999999 -bf 0 -intra-refresh 1 -zerolatency 1 -delay 0"      // -delay 0: sem segurar quadros dentro do NVENC
             : $"-c:v libx264 -preset ultrafast -tune zerolatency -b:v {bitrateKbps}k -maxrate {bitrateKbps}k -bufsize {buf}k " +
               "-x264-params nal-hrd=cbr:keyint=infinite:intra-refresh=1:threads=2";
-        string args = $"-hide_banner -loglevel error -nostats -f rawvideo -pix_fmt rgba -s {largura}x{altura} -r 60 -i - " +
-                      $"-vf vflip {enc} -bsf:v h264_metadata=aud=insert -f h264 -";
+        // -fflags nobuffer e -flush_packets 1: cada quadro sai assim que é codificado, sem acumular no ffmpeg
+        string args = $"-hide_banner -loglevel error -nostats -fflags nobuffer -f rawvideo -pix_fmt rgba -s {largura}x{altura} -r 60 -i - " +
+                      $"-vf vflip {enc} -bsf:v h264_metadata=aud=insert -flush_packets 1 -f h264 -";
         ffmpeg = new Process
         {
             StartInfo = new ProcessStartInfo("ffmpeg", args)
@@ -106,6 +108,13 @@ public class SaidaQuadros : MonoBehaviour
     /// <summary>Chamar depois de WaitForEndOfFrame: o RenderTexture já tem o quadro desta pose.</summary>
     public void Capturar(PoseVR pose, double tInicio)
     {
+        if (readbackSincrono)
+        {
+            var r = AsyncGPUReadback.Request(rt, 0, TextureFormat.RGBA32);
+            r.WaitForCompletion();                        // espera a GPU: tira 2 a 3 quadros de latência, custa a espera
+            AoLer(r, pose, tInicio);
+            return;
+        }
         AsyncGPUReadback.Request(rt, 0, TextureFormat.RGBA32, r => AoLer(r, pose, tInicio));
     }
 
