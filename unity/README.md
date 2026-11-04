@@ -89,7 +89,7 @@ Tente os modos de tela na ordem, mudando `-e MODO_TELA=`:
 
 | Modo | O que é | Quando usar |
 | --- | --- | --- |
-| `egl` (padrão) | Xvfb para o 2D + VirtualGL mandando o OpenGL para a GPU pela EGL | o caminho que mais vezes funciona em container |
+| `egl` (padrão) | Xvfb para o 2D + VirtualGL mandando o OpenGL para a GPU pela EGL | **confirmado em 04/11/2026 numa RTX 4060 Ti**: o Unity reporta a placa como Renderer |
 | `direto` | só o player com Vulkan, sem servidor gráfico | vale tentar: algumas versões do Unity renderizam fora de tela |
 | `xorg` | um Xorg sem monitor com o driver NVIDIA | exige o módulo X do driver dentro da imagem, da mesma versão do host |
 | `cpu` | Xvfb com llvmpipe | só para provar que o resto do pipeline funciona; não dá 60 fps |
