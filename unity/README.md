@@ -48,10 +48,10 @@ python3 vr/testar_render.py --passeio vr/passeio.csv --duracao 30 --salvar /tmp/
 ```
 
 ```bash
-VR_MODO=rede VR_ENCODER=x264 VR_PNG_S=5 VR_PNG_DIR=/tmp/quadros unity/build/vrmodelo.x86_64 -batchmode -screen-width 1280 -screen-height 720 -logFile -   # Linux
+VR_MODO=rede VR_ENCODER=x264 VR_PNG_S=5 VR_PNG_DIR=/tmp/quadros unity/build/vrmodelo.x86_64 -screen-width 1280 -screen-height 720 -screen-fullscreen 0 -logFile -   # Linux
 ```
 
-No Windows, o mesmo com `vrmodelo.exe` (ele abre uma janela; tudo bem). O que conferir:
+O player abre uma janela, que fica cinza: a câmera desenha na textura interna, não na janela. **Não use `-batchmode`:** no player ele pula o render de todas as câmeras, e nada chega ao codificador (visto em 04/11/2026: `lidos=0` com as poses chegando). No Windows, o mesmo com `vrmodelo.exe`. O que conferir:
 
 - o medidor imprime `fps=60.0`, `enc_kB` entre 10 e 16, `estourados=0`, `idade_ms p95` abaixo de 25;
 - `ffplay /tmp/modelo.h264` mostra o seu modelo com a câmera andando (sem `ffplay`: `ffmpeg -i /tmp/modelo.h264 /tmp/modelo.mp4` e abra o mp4). Com `VR_ENCODER=jpeg`, `ffplay -f mjpeg /tmp/modelo.h264`;

@@ -25,6 +25,7 @@ public class ControleVR : MonoBehaviour
     ReceptorPoses receptor;
     SaidaQuadros saida;
     Passeio passeio;
+    Camera cam;
     PoseVR poseAtual;
     bool temPose, usandoPasseio, avisouSemPasseio;
     float tPasseio;
@@ -54,6 +55,10 @@ public class ControleVR : MonoBehaviour
         saida.pngCadaS = float.Parse(Env("VR_PNG_S", "0"), System.Globalization.CultureInfo.InvariantCulture);
         saida.pngDir = Env("VR_PNG_DIR", "/saida");
         saida.Iniciar(cam);
+        // A câmera não renderiza sozinha: o Update chama cam.Render() depois de aplicar a pose. Assim o
+        // render acontece sempre, inclusive com -batchmode, em que o player pula as câmeras automáticas.
+        cam.enabled = false;
+        this.cam = cam;
 
         if (modo == "rede") receptor = gameObject.AddComponent<ReceptorPoses>();
         if (File.Exists(passeioCaminho))
@@ -72,7 +77,7 @@ public class ControleVR : MonoBehaviour
         tPoseAplicada = agora;                                 // o custo do render conta a partir daqui
         frameMs.Add(Time.unscaledDeltaTime * 1000f);
 
-        PoseVR p;
+        PoseVR p = default;
         bool rede = receptor != null && receptor.TentarLer(out p) && agora - p.tChegada < 2.0;
         if (rede)
         {
@@ -98,16 +103,11 @@ public class ControleVR : MonoBehaviour
             temPose = true;
         }
 
-        if (agora - tRelatorio >= 5.0) { Relatorio(agora - tRelatorio); tRelatorio = agora; }
-    }
-
-    // Depois de a câmera renderizar (Built-in RP). Não usamos WaitForEndOfFrame porque em -batchmode
-    // ele pode nunca ser chamado. O readback espera a GPU terminar, então o tempo de GPU entra no render_us.
-    void OnPostRender()
-    {
-        if (!temPose) return;
+        cam.Render();                                          // renderiza esta pose no RenderTexture, agora
         quadros++;
-        saida.Capturar(poseAtual, tPoseAplicada);
+        saida.Capturar(poseAtual, tPoseAplicada);              // o readback espera a GPU: o tempo dela entra no render_us
+
+        if (agora - tRelatorio >= 5.0) { Relatorio(agora - tRelatorio); tRelatorio = agora; }
     }
 
     static float Pct(List<float> v, float q)

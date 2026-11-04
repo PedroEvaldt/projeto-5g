@@ -12,7 +12,7 @@ MODO_TELA="${MODO_TELA:-egl}"
 LARGURA="${VR_LARGURA:-1280}"
 ALTURA="${VR_ALTURA:-720}"
 PLAYER="$(ls /opt/unity/*.x86_64 | head -1)"
-ARGS=(-batchmode -screen-width "$LARGURA" -screen-height "$ALTURA" -screen-fullscreen 0 -logFile -)   # sem -nographics: ele desliga o render
+ARGS=(-screen-width "$LARGURA" -screen-height "$ALTURA" -screen-fullscreen 0 -logFile -)   # sem -batchmode nem -nographics: os dois desligam o render das câmeras
 
 echo "[entrypoint] player=$PLAYER tela=$MODO_TELA ${LARGURA}x${ALTURA}"
 command -v nvidia-smi >/dev/null && nvidia-smi --query-gpu=name,driver_version --format=csv,noheader || echo "[entrypoint] sem nvidia-smi: a GPU não entrou no container"

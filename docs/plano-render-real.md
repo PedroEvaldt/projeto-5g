@@ -98,9 +98,9 @@ kubectl describe node <nó de GPU> | grep -A5 -i taint                          
 É a etapa que mais costuma falhar, e tem de vir antes de qualquer integração.
 
 1. **Build Linux** do projeto (player, não editor). Sem `-nographics` depois: isso desliga o render.
-2. **Imagem.** Base com driver de usuário da NVIDIA e `ffmpeg` com NVENC (as imagens `nvidia/cuda` servem de base; o `ffmpeg` precisa ser um build com `h264_nvenc`). Copiar o player para `/opt/unity/`. Ponto de entrada: um script que sobe o que o player precisa para ter "tela" e roda `./player.x86_64 -batchmode -force-vulkan -screen-width 1280 -screen-height 720 -logFile -`.
+2. **Imagem.** Base com driver de usuário da NVIDIA e `ffmpeg` com NVENC (as imagens `nvidia/cuda` servem de base; o `ffmpeg` precisa ser um build com `h264_nvenc`). Copiar o player para `/opt/unity/`. Ponto de entrada: um script que sobe o que o player precisa para ter "tela" e roda `./player.x86_64 -force-vulkan -screen-width 1280 -screen-height 720 -logFile -` (sem `-batchmode`: no player ele pula o render das câmeras).
 3. **"Tela" sem monitor**, tentar nesta ordem:
-   - (a) direto, só com `-batchmode -force-vulkan`: algumas versões renderizam fora de tela sem servidor gráfico;
+   - (a) direto, só com `-force-vulkan`: algumas versões renderizam fora de tela sem servidor gráfico;
    - (b) um Xorg sem monitor com o driver NVIDIA (`nvidia-xconfig --allow-empty-initial-configuration`, tela virtual), como fazem o VirtualGL e o Selkies; é o caminho que mais vezes funciona com GPU;
    - (c) `xvfb-run`: funciona sempre, mas renderiza na CPU (llvmpipe). Serve só para provar o resto do pipeline, não para os 60 fps.
 4. **Manifesto de teste:** `nodeSelector` no nó de GPU, `resources.limits: nvidia.com/gpu: 1`, `runtimeClassName: nvidia` se a etapa 0 mostrou que existe, tolerations se há taint. CPU 4 e memória 4Gi para começar.
