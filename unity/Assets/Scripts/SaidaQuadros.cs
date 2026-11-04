@@ -36,7 +36,7 @@ public class SaidaQuadros : MonoBehaviour
     public string pngDir = "/saida";
 
     // Contadores para o medidor (lidos da thread principal; int é atômico)
-    public int quadrosLidos, quadrosDescartados, quadrosEnviados, quadrosCortados, erroReadback;
+    public int quadrosLidos, quadrosDescartados, quadrosEnviados, quadrosCortados, erroReadback, fragmentosDescartados;
     public long bytesEnviados;
     readonly List<float> renderMs = new List<float>();
     readonly object travaMetricas = new object();
@@ -168,12 +168,18 @@ public class SaidaQuadros : MonoBehaviour
         }
     }
 
+    static bool ComecaComAud(byte[] b, int o, int fim) =>
+        o + 4 < fim && b[o] == 0 && b[o + 1] == 0 && b[o + 2] == 0 && b[o + 3] == 1 && (b[o + 4] & 0x1F) == 9;
+
     void LacoLeitor()
     {
         // Junta o que o ffmpeg manda e corta nas fronteiras "00 00 00 01 09" (AUD): cada pedaço é um quadro.
+        // Com -flush_packets 1 o ffmpeg escreve cada quadro inteiro de uma vez; então, quando uma leitura
+        // esvazia o cano (veio menos que o pedaço), o que sobrou depois do último AUD é um quadro completo
+        // e sai na hora, sem esperar o AUD do quadro seguinte (isso custava um período inteiro de latência).
         var saida = ffmpeg.StandardOutput.BaseStream;
         var acumulado = new byte[1 << 20];
-        int usado = 0, varrido = 0;
+        int usado = 0;
         var pedaco = new byte[64 << 10];
         while (rodando)
         {
@@ -182,19 +188,29 @@ public class SaidaQuadros : MonoBehaviour
             if (n <= 0) break;
             if (usado + n > acumulado.Length) Array.Resize(ref acumulado, Math.Max(acumulado.Length * 2, usado + n));
             Buffer.BlockCopy(pedaco, 0, acumulado, usado, n);
+            int antes = usado;
             usado += n;
             int inicio = 0;
-            for (int i = Math.Max(varrido - 4, 0); i + 4 < usado; i++)
+            bool inicioValido = ComecaComAud(acumulado, 0, usado);        // o que ficou de antes começa num quadro?
+            for (int i = Math.Max(antes - 4, 0); i + 4 < usado; i++)
             {
-                if (acumulado[i] == 0 && acumulado[i + 1] == 0 && acumulado[i + 2] == 0 && acumulado[i + 3] == 1 && (acumulado[i + 4] & 0x1F) == 9)
+                if (!ComecaComAud(acumulado, i, usado)) continue;
+                if (i > inicio)
                 {
-                    if (i > inicio) EmitirQuadro(acumulado, inicio, i - inicio);
-                    inicio = i;
-                    i += 4;
+                    if (inicioValido) EmitirQuadro(acumulado, inicio, i - inicio);
+                    else fragmentosDescartados++;                          // sobra sem AUD no começo: leitura cortou um quadro
                 }
+                inicio = i;
+                inicioValido = true;
+                i += 4;
+            }
+            if (n < pedaco.Length && inicioValido && usado - inicio > 5)
+            {
+                EmitirQuadro(acumulado, inicio, usado - inicio);          // o cano esvaziou: o último quadro está inteiro
+                usado = 0;
+                continue;
             }
             if (inicio > 0) { Buffer.BlockCopy(acumulado, inicio, acumulado, 0, usado - inicio); usado -= inicio; }
-            varrido = usado;
         }
         if (rodando) Debug.LogError("[saida] o ffmpeg fechou a saída");
     }

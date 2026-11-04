@@ -128,7 +128,7 @@ public class ControleVR : MonoBehaviour
         Debug.Log($"[medidor] fps={quadros / dt:F1} frame_ms p50={Pct(f, .5f):F2} p95={Pct(f, .95f):F2} " +
                   $"render_ms p50={Pct(render, .5f):F2} p95={Pct(render, .95f):F2} " +
                   $"lidos={saida.quadrosLidos} enviados={saida.quadrosEnviados} descartados={saida.quadrosDescartados} " +
-                  $"cortados={saida.quadrosCortados} erro_readback={saida.erroReadback} kB_medio={(saida.quadrosEnviados > 0 ? saida.bytesEnviados / 1000.0 / saida.quadrosEnviados : 0):F1} " +
+                  $"cortados={saida.quadrosCortados} fragmentos={saida.fragmentosDescartados} erro_readback={saida.erroReadback} kB_medio={(saida.quadrosEnviados > 0 ? saida.bytesEnviados / 1000.0 / saida.quadrosEnviados : 0):F1} " +
                   $"poses={(receptor != null ? receptor.posesRecebidas : 0)} fonte={(usandoPasseio ? "passeio" : "rede")}");
         quadros = 0;
     }

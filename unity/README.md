@@ -54,7 +54,8 @@ VR_MODO=rede VR_ENCODER=x264 VR_PNG_S=5 VR_PNG_DIR=/tmp/quadros unity/build/vrmo
 O player abre uma janela, que fica cinza: a câmera desenha na textura interna, não na janela. **Não use `-batchmode`:** no player ele pula o render de todas as câmeras, e nada chega ao codificador (visto em 04/11/2026: `lidos=0` com as poses chegando). No Windows, o mesmo com `vrmodelo.exe`. O que conferir:
 
 - o medidor imprime `fps=60.0`, `enc_kB` entre 10 e 16, `estourados=0`, `idade_ms p95` abaixo de 25;
-- se a `idade_ms` ficar alta (centenas de ms), compare com `VR_READBACK=sync`: a leitura da GPU passa a esperar o quadro na hora, o que tira 2 a 3 quadros de latência ao custo de alguns ms por quadro. Medido em 04/11/2026 com o modo assíncrono e o NVENC sem `-delay 0`: 218 ms a 37 fps;
+- se a `idade_ms` ficar alta (centenas de ms), compare com `VR_READBACK=sync`: a leitura da GPU passa a esperar o quadro na hora, o que tira 2 a 3 quadros de latência ao custo de alguns ms por quadro. Medido em 04/11/2026 numa RTX 4060 Ti, museu decimado a 3,8 M de triângulos, 1280×720: 218 ms (assíncrono, NVENC sem `-delay 0`), 71 ms (assíncrono com `-delay 0`), 41 ms (`VR_READBACK=sync`); o leitor passou a emitir cada quadro na chegada depois dessa medida, o que deve tirar mais um período;
+- `VR_BITRATE_KBPS=6500` zera os `estourados` (com 7000, 1 quadro em 300 passou dos 16 128 B);
 - `ffplay /tmp/modelo.h264` mostra o seu modelo com a câmera andando (sem `ffplay`: `ffmpeg -i /tmp/modelo.h264 /tmp/modelo.mp4` e abra o mp4). Com `VR_ENCODER=jpeg`, `ffplay -f mjpeg /tmp/modelo.h264`;
 - os PNGs em `/tmp/quadros` são o quadro cru, antes do codificador: se o PNG está certo e o vídeo não, o problema é o `ffmpeg`.
 
