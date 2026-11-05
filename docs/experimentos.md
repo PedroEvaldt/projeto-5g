@@ -14,6 +14,84 @@
 - **Fora:** a configuração estática (E) e o cenário misto (M), por decisão de 01/11/2026.
 - **A L0** é a L1 (`test_config_hvr.yaml`) com `vr.floor: off` e nada mais. O agente da VR continua por utilização, porque a L0 é "o sistema do artigo com a VR como mais uma fatia". Sem piso, a entrada da VR não muda nada no leilão; a saída libera o que ela tinha, como na L1 (até 02/11/2026 a saída também era ignorada, e a VR ficava com a CPU que ganhou nas rodadas de aquecimento e nunca entrava numa rede cheia: o 1º ciclo foi refeito por isso). Desde 03/11/2026 a VR fica pausada entre as execuções e entra de fato numa `upf4` no mínimo; o PFCP da `upf4` cai logo depois, e a VR fica ~1 min sem sessão. É resultado da L0 (ver "A VR e a upf4").
 
+## Resultados (05/11/2026)
+
+Os 30 ciclos rodaram de 03/11, 11:57, a 05/11, 09:18 (horário da ledzeppelin): **150 execuções válidas, 30 por combinação**. O ciclo 1 rodou no commit `e9600740` e os ciclos 2 a 30 no `04bdee98`. Entre os dois só mudou o verificador (o SMF que conta e a regra da UPF presa), não o experimento.
+
+As tabelas e as figuras saem do `metricas_scripts/analise_fase8.py`, a partir dos CSVs brutos:
+
+```bash
+cd metricas_scripts && ../venv/bin/python analise_fase8.py   # grava tabelas.md, por_execucao.csv, tempo.csv e as figuras (PNG e PDF) em resultados/fase8_analise/
+```
+
+- **A conta:** a unidade é a execução. Cada métrica é calculada dentro de uma execução e resumida por combinação com a média e o IC de 95% (t de Student, n = 30). As comparações do plano (L0 × L1, L1 × L2 e, no SC-VR, L2 × L3) dão a diferença das médias com o IC e o p do teste t de Welch. As tabelas completas estão no `tabelas.md`; abaixo, o principal.
+- **SLA da VR:** o "% de janelas no SLA" não vê o tempo em que a VR ficou sem sessão, porque aí não há janela (só acontece na L0). A métrica principal é o **tempo com a VR ativa no SLA**, que conta esse tempo como fora (decisão do Pedro, 05/11/2026). Nas outras combinações as duas dão o mesmo número.
+- **Custo para o vídeo:** comparado entre as configurações, com a VR ativa. A comparação do plano "com a VR ativa × com a VR fora, na mesma execução" não vale: com a VR fora tocam outros vídeos (no H-VR, o silver só toca com a VR fora no 1º minuto). Ela fica só na tabela (decisão do Pedro, 05/11/2026).
+
+**Execuções e testbed**
+
+| Combinação | Válidas | Com aviso | Tentativas descartadas | Avisos |
+| --- | --- | --- | --- | --- |
+| `hvr_l0` | 30 | 27 | 2 de 32 | VR ativa sem janela > 60 s (26); `upf4` sem PFCP > 60 s (6); UPF de vídeo presa com a sessão de pé (2); bronze parado (2) |
+| `hvr_l1` | 30 | 2 | 0 | UPF de vídeo presa com a sessão de pé (1); bronze parado por 390 s (1) |
+| `hvr_l2` | 30 | 2 | 0 | UPF de vídeo presa com a sessão de pé (2) |
+| `scvr_l2` | 30 | 0 | 0 | — |
+| `scvr_l3` | 30 | 0 | 0 | — |
+
+- As duas tentativas descartadas são da L0: `hvrl0_01` (`upf2` presa, regra antiga do ciclo 1) e `hvrl0_14` (`upf4` presa com a VR sem sessão no fim).
+- A fila fez 8 consertos, todos com sucesso, e nunca parou: `upf3` 4 vezes, `upf2` 2, `upf4` 1 e o UE da VR 1.
+- Quedas do PFCP com o nosso SMF, por execução: a `upf4` cai 1,6 vez na L0 e nenhuma nas outras; as UPFs de vídeo, 0,03 a 0,10 em todas as combinações, inclusive no SC-VR. O PFCP que cai com a banda é um problema do testbed, não da VR (ver "A VR e a upf4").
+
+**VR no H-VR** (média ± IC de 95%)
+
+| | L0 | L1 | L2 |
+| --- | --- | --- | --- |
+| Tempo com a VR ativa no SLA | 60,8 ± 5,1% | 99,0 ± 0,7% | 97,9 ± 1,0% |
+| Janelas no SLA | 68,1 ± 5,1% | 99,0 ± 0,7% | 97,9 ± 1,0% |
+| 1ª entrada (3 vídeos tocando): até o SLA | 150 ± 17 s | 12,7 s (1ª janela) | 12,7 s (1ª janela) |
+| 2ª entrada (só o gold): até o SLA | 73 ± 18 s | 12,7 s | 13,2 ± 0,9 s |
+| Maior trecho ativa sem janela (sem sessão) | 71 ± 6 s | 12,8 s (normal) | 12,8 s (normal) |
+| Banda / CPU da VR com ela ativa | 12,8 Mbps / 0,28 | 17,1 Mbps / 0,39 | 9,9 Mbps / 0,28 (o piso) |
+| Rodadas vencidas pela VR (de 30) | 14,5 | 13,5 | 0 |
+
+**Vídeo no H-VR: bitrate com a VR ativa** (Mbps; média ± IC de 95%)
+
+| | L0 | L1 | L2 |
+| --- | --- | --- | --- |
+| gold | 10,6 ± 0,7 | 9,6 ± 0,6 | 12,4 ± 0,5 |
+| silver | 2,5 ± 0,2 | 2,0 ± 0,2 | 3,3 ± 0,1 |
+| bronze | 2,6 ± 0,2 | 1,8 ± 0,1 | 2,1 ± 0,2 |
+
+**SC-VR** (média ± IC de 95%)
+
+| | L2 | L3 |
+| --- | --- | --- |
+| Tempo com o drone ativo no SLA | 99,6 ± 0,7% | 100% |
+| No incêndio, o LLM subiu | os bombeiros (30 de 30) | o drone (30 de 30) |
+| Banda do drone com ele ativo | 9,9 Mbps (o piso) | 9,9 Mbps (o piso) |
+| Polícia, com o drone ativo | 5,2 ± 0,3 Mbps | 6,0 ± 0,4 Mbps |
+| Bombeiros, com o drone ativo | 7,2 ± 0,7 Mbps | 5,2 ± 0,3 Mbps |
+| Ambulância, com o drone ativo | 3,6 ± 0,4 Mbps | 4,7 ± 0,3 Mbps |
+
+As 300 respostas do LLM (4 intenções × 60 execuções) foram todas válidas.
+
+**O que os números mostram**
+
+1. **Prioridade alta não protege a VR; o piso protege (L0 → L1).** O tempo no SLA sobe de 61% para 99% (+38 pontos, IC [33; 43], p < 0,001), e a VR entra no SLA já na 1ª janela, contra 150 s na L0. Sem piso, a 1ª entrada derruba o PFCP da `upf4`, a VR fica ~1 min sem sessão e só entra no SLA ~2,5 min depois, quando o agente por utilização já comprou o bastante.
+2. **Com o piso, o agente por utilização faz a VR acumular (L1).** Ela fica com 17,1 Mbps e 0,39 núcleo, bem acima do piso (9,9 Mbps e 0,28), e o vídeo perde até para a L0: gold −1,0 Mbps (p = 0,02), silver −0,5, bronze −0,8 (p < 0,001).
+3. **O agente por SLA devolve a sobra ao vídeo sem tirar a VR do SLA (L1 → L2).** A VR fica no piso (lance 0, nenhuma rodada vencida), e a diferença no SLA não é significativa (−1,1 ponto, IC [−2,3; 0,1], p = 0,07). As poucas janelas fora são as do `net` com os 3 vídeos tocando, o efeito já visto nas Fases 3 e 4. O vídeo ganha nas três fatias: gold +2,8 Mbps, silver +1,3 (p < 0,001), bronze +0,3 (p = 0,008).
+4. **Contar ao LLM sobre a VR atrapalha a emergência (L2 × L3).** O drone fica no SLA nas duas, no piso. Na L3, o LLM sobe o drone em vez dos bombeiros, mas a prioridade não muda nada para o drone, que lança pelo SLA. Os bombeiros, que a intenção pedia, perdem 2,0 Mbps com o drone ativo (p < 0,001), e a polícia (+0,9) e a ambulância (+1,1) ganham.
+
+**Figuras** (em `resultados/fase8_analise/`, em português, para os slides; as do artigo continuam no `csv_graficos_ieee.py`):
+
+| Arquivo | O que mostra |
+| --- | --- |
+| `vr_sla` | tempo com a VR ativa no SLA: um ponto por execução, média e IC |
+| `vr_entradas` | da entrada até a 1ª janela no SLA, em cada entrada |
+| `video_hvr`, `video_scvr` | bitrate de cada vídeo com a VR ativa, por configuração |
+| `hvr_tempo` | ao longo do teste, L0 × L1 × L2: VR fora do SLA, banda e CPU da VR, bitrate somado dos vídeos |
+| `scvr_tempo` | ao longo do teste, L2 × L3: prioridade do drone e dos bombeiros dada pelo LLM, bitrate de cada vídeo |
+
 ## A VR e a upf4: por que a saída espera 5 s
 
 Incidente de 02/11/2026 (detalhes em "Onde parei"): a `upf4` perdeu a associação PFCP com o SMF em quase toda execução, e na `hvrl0_02` ficou presa até o pod ser recriado. As UPFs de vídeo, nas mesmas 10 execuções, não perderam nenhuma vez (no ciclo 1 novo, de 03/11, duas perderam, depois de um corte de banda: ver abaixo).
@@ -130,7 +208,8 @@ metricas_scripts/resultados/            (fora do git)
 ├── descartadas/<combinação>/<nome>-tentativaN/   ← o que falhou, com conferencia.txt ou veredito.txt
 ├── fase8_fila.csv                      ← uma linha por tentativa: ciclo, ordem, nome, início, fim, status, motivo, commit
 ├── fase8_reparos.csv                   ← um conserto automático por linha (UPF presa, UDM cheio, túnel da VR)
-└── fase8_fila.log                      ← tudo o que a fila e o run_experiment_tmux.sh escreveram
+├── fase8_fila.log                      ← tudo o que a fila e o run_experiment_tmux.sh escreveram
+└── fase8_analise/                      ← saída do analise_fase8.py: tabelas.md, por_execucao.csv, tempo.csv, figuras
 ```
 
 Cada execução tem `config.yaml` (o YAML exato que rodou), os CSVs de sempre, `vr_log.txt`, `janelas/`, `upf_pfcp.txt`, `resumo.txt`, `analise/` e `veredito.txt`.
@@ -181,5 +260,5 @@ ssh -o ClearAllForwardings=yes k8s-inf 'cd ~/dev/projeto-5g/metricas_scripts/res
   | `hvrl1_01` | ok | 45 de 45 |
 
   Os achados (a L0, a banda, a UPF presa com a sessão de pé, o SMF de fora) estão em "A VR e a upf4". Decisões do Pedro (03/11/2026): só o nosso SMF decide (`pfcp_upf.py` e `conferir_execucao.py`); a perda de sessão da VR na L0 é resultado; a UPF presa só descarta se o cliente ficou sem sessão; não conferir agora se a VR passa pela `upf4`. Esse último fica anotado como risco: com a `upf4` fora, o SMF tenta pôr a sessão da VR nas outras UPFs da lista (`upf5`, `upf6`, `upf7`, `upf1`, `upf2`, `upf3`, em rodízio); no ciclo 1 todas recusaram, mas, se uma aceitasse, a VR passaria por fora do leilão sem alarme. Também anotado: as UPFs voltam a acumular sessões velhas (a `upf3` tem 16 para um UE), sem efeito visto no tráfego.
-- **Próximo:** commitar, fazer o `git pull` na ledzeppelin e rodar `./run_fase8.sh --ciclos 29`.
-- **Ainda por escrever, durante os ciclos:** o script único de análise (`analise_fase8.py`). Ele produz as tabelas e as figuras com média e intervalo de confiança de 95% por combinação. Ele deve contar também as quedas de PFCP do `upf_pfcp.txt` (só as do nosso SMF), as UPFs presas com a sessão de pé, a perda de sessão da VR na entrada da L0 e os consertos do `fase8_reparos.csv`.
+- **03 a 05/11/2026:** ciclos 2 a 30 (`./run_fase8.sh --ciclos 29`, de 03/11, 14:30, a 05/11, 09:19, sem parar). Resultado: 150 de 150 válidas.
+- **05/11/2026:** resultados trazidos ao PC e `metricas_scripts/analise_fase8.py` escrito (ver "Resultados"). **Fase 8 concluída.** Ficam pendentes, sem pressa: o teste controlado CPU × banda do PFCP e o risco anotado acima, de a VR passar por outra UPF com a `upf4` fora.
