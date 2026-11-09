@@ -117,6 +117,7 @@ class Metrics:
             "frames_late_total": 0,
             "frames_truncated_total": 0,
             "frames_enc_truncated_total": 0,
+            "frames_pose_fallback_total": 0,
             "frames_reanchored_total": 0,
             "send_dropped_total": 0,
             "send_errors_total": 0,
@@ -417,6 +418,10 @@ class Server:
                     self.send_frame(s, frame.pose_seq, frame.t_pose_ns,
                                     frame.recv_ns, frame.render_us, share, enc)
                 else:
+                    # Com render externo, é exceção: o quadro sai sem a pose
+                    # desta sessão. Muitos deles = o render não segue o cliente.
+                    if self.render_in:
+                        self.metrics.add("frames_pose_fallback_total")
                     self.send_frame(s, seq, t_pose_ns, recv_ns, render_us,
                                     share, enc)
 
