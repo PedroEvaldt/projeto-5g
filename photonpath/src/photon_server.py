@@ -67,6 +67,7 @@ PP_FPS, ...), so you can change profiles with `kubectl set env` without
 rebuilding anything.
 """
 import argparse
+import collections
 import math
 import os
 import socket
@@ -90,6 +91,14 @@ FRAME_HDR = struct.Struct("!4sIQHHQQIII")
 FLAG_BYE = 1
 MSG_DONTWAIT = getattr(socket, "MSG_DONTWAIT", 0x40)
 
+# Render externo (--render-sock), pelo loopback. O cabeçalho é seguido do
+# quadro codificado: magic, pose_seq, t_pose_ns, recv_ns, render_us, enc_bytes
+RENDER_MAGIC = b"PPRF"
+RENDER_HDR = struct.Struct("!4sQQQII")
+RENDER_STALE_NS = 500_000_000   # sem quadro novo por 0,5 s, volta ao sintético
+RenderFrame = collections.namedtuple(
+    "RenderFrame", "pose_seq t_pose_ns recv_ns render_us data arrived_ns")
+
 
 class Metrics:
     """Plain counters. The Prometheus text format is simple enough that
@@ -107,6 +116,7 @@ class Metrics:
             "frame_bytes_total": 0,
             "frames_late_total": 0,
             "frames_truncated_total": 0,
+            "frames_enc_truncated_total": 0,
             "frames_reanchored_total": 0,
             "send_dropped_total": 0,
             "send_errors_total": 0,
@@ -125,6 +135,9 @@ class Metrics:
             "kernel_rx_timestamp": 0,
             "pace_chunk_packets": 0,
             "pace_window_seconds": 0.0,
+            "render_source": 0,             # 0 sintético, 1 render externo
+            "render_frame_age_seconds": 0.0,
+            "enc_bytes_last": 0,
         }
 
     def add(self, key, value=1):
@@ -230,6 +243,19 @@ class Server:
         for i in range(FRAME_HDR.size, args.mtu):
             self.buf[i] = i & 0xFF
 
+        self.pattern = bytes(self.buf[FRAME_HDR.size:])
+        self.render_in = self.render_out = self.render_pose_dest = None
+        self.render_frame = None    # último PPRF; só se troca a referência
+        self.warned_multi = False
+        if args.render_sock:
+            host, _, port = args.render_sock.rpartition(":")
+            self.render_in = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.render_in.bind((host, int(port)))
+            photon_clock.recv_timeout(self.render_in, 0.2)
+            host, _, port = args.render_pose.rpartition(":")
+            self.render_pose_dest = (host, int(port))
+            self.render_out = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
     # ------------------------------------------------------------------ RX
     def rx_loop(self):
         recv_into = self.sock.recvmsg_into
@@ -259,6 +285,7 @@ class Server:
             self.metrics.add("pose_packets_total")
             self.metrics.add("pose_bytes_total", n)
 
+            newest = False
             with self.lock:
                 s = self.sessions.get(addr)
                 if s is None or s.sid != sid:
@@ -280,6 +307,63 @@ class Server:
                     s.seq = seq
                     s.t_pose_ns = t_ns
                     s.recv_ns = now_ns
+                    newest = True
+            if newest and self.render_out:
+                self.forward_pose(n, now_ns)
+
+    # ------------------------------------------------- render externo
+    def forward_pose(self, n, recv_ns):
+        """Repassa a pose ao render, como chegou, mais o carimbo de chegada.
+        Perder um repasse não é erro: logo vem outra pose."""
+        try:
+            self.render_out.sendto(bytes(self.rxbuf[:n]) +
+                                   struct.pack("!Q", recv_ns), MSG_DONTWAIT,
+                                   self.render_pose_dest)
+        except OSError:
+            pass
+
+    def render_rx_loop(self):
+        """Lê os quadros do render externo e guarda só o último."""
+        while self.running:
+            try:
+                data = self.render_in.recv(65535)
+            except (BlockingIOError, socket.timeout):
+                continue
+            except OSError:
+                if self.running:
+                    continue
+                return
+            if len(data) < RENDER_HDR.size:
+                continue
+            magic, pose_seq, t_pose_ns, recv_ns, render_us, enc_bytes = (
+                RENDER_HDR.unpack_from(data))
+            if magic != RENDER_MAGIC or enc_bytes != len(data) - RENDER_HDR.size:
+                continue
+            self.metrics.set("enc_bytes_last", enc_bytes)
+            self.render_frame = RenderFrame(
+                pose_seq, t_pose_ns, recv_ns, render_us,
+                memoryview(data)[RENDER_HDR.size:], photon_clock.now_ns())
+
+    def current_render(self, now_ns):
+        """O último quadro do render, se ainda for recente; senão, None."""
+        f = self.render_frame
+        if f is None or now_ns - f.arrived_ns > RENDER_STALE_NS:
+            self.metrics.set("render_source", 0)
+            return None
+        self.metrics.set("render_source", 1)
+        self.metrics.set("render_frame_age_seconds",
+                         round(max(0, now_ns - f.arrived_ns) / 1e9, 6))
+        return f
+
+    def fill_payload(self, enc, idx):
+        """Põe no pacote idx a sua fatia do quadro codificado e completa com o
+        padrão. O que não couber nos pkt_cnt pacotes fica de fora."""
+        n = 0
+        if enc is not None:
+            part = enc[idx * self.payload_size:(idx + 1) * self.payload_size]
+            n = len(part)
+            self.view[FRAME_HDR.size:FRAME_HDR.size + n] = part
+        self.view[FRAME_HDR.size + n:] = self.pattern[n:]
 
     # ------------------------------------------------------------------ TX
     def tx_loop(self):
@@ -308,13 +392,33 @@ class Server:
                 active = [(s, s.seq, s.t_pose_ns, s.recv_ns)
                           for s in self.sessions.values()]
 
-            render_us = self.render(len(active)) if active else 0
+            frame = self.current_render(now_ns) if self.render_in else None
+            if frame:
+                render_us = 0
+                if active and (len(frame.data) >
+                               self.pkt_cnt * self.payload_size):
+                    self.metrics.add("frames_enc_truncated_total")
+                if len(active) > 1 and not self.warned_multi:
+                    self.warned_multi = True
+                    print("  WARNING: render externo com mais de uma sessão: "
+                          "todas recebem o mesmo quadro.", flush=True)
+            else:
+                render_us = self.render(len(active)) if active else 0
 
             # With N sessions the pacing budget gets split among them.
             # There is only one period and everybody has to fit in it.
             share = self.budget / max(1, len(active))
             for s, seq, t_pose_ns, recv_ns in active:
-                self.send_frame(s, seq, t_pose_ns, recv_ns, render_us, share)
+                enc = frame.data if frame else None
+                # Só ecoa a pose do quadro se ela for desta sessão. Logo depois
+                # de uma sessão começar, o quadro ainda veio de uma pose
+                # anterior, e os carimbos dela estragariam o m2p e o hold.
+                if frame and frame.recv_ns >= s.started_ns:
+                    self.send_frame(s, frame.pose_seq, frame.t_pose_ns,
+                                    frame.recv_ns, frame.render_us, share, enc)
+                else:
+                    self.send_frame(s, seq, t_pose_ns, recv_ns, render_us,
+                                    share, enc)
 
             now = time.perf_counter()
             drift = next_t - now
@@ -329,7 +433,8 @@ class Server:
                     self.metrics.add("frames_reanchored_total")
                     next_t = now
 
-    def send_frame(self, s, seq, t_pose_ns, recv_ns, render_us, budget):
+    def send_frame(self, s, seq, t_pose_ns, recv_ns, render_us, budget,
+                   enc=None):
         """seq, t_pose_ns and recv_ns come from the tx_loop snapshot. The
         three of them have to describe the same pose, or the client's
         net_us comes out wrong."""
@@ -352,6 +457,8 @@ class Server:
             # personally spent in here. A single hold per frame would push
             # our own pacing into the client's net_us as if it were the
             # network.
+            if self.render_in:
+                self.fill_payload(enc, idx)
             hold_us = max(0, (photon_clock.now_ns() - recv_ns) // 1000)
             FRAME_HDR.pack_into(
                 self.buf, 0, FRAME_MAGIC, s.sid, s.frame_seq, idx,
@@ -515,9 +622,14 @@ class Server:
         print(f"  render={a.render_ms} ms/frame/session "
               f"[{'sleep' if a.render_sleep else 'CPU burn'}] "
               f"ai={'on' if a.ai_url else 'off'}", flush=True)
+        if a.render_sock:
+            print(f"  render=externo sock={a.render_sock} "
+                  f"poses={a.render_pose}", flush=True)
 
         threading.Thread(target=self.serve_metrics, daemon=True).start()
         threading.Thread(target=self.rx_loop, daemon=True).start()
+        if self.render_in:
+            threading.Thread(target=self.render_rx_loop, daemon=True).start()
         if a.ai_url:
             threading.Thread(target=self.ai_loop, daemon=True).start()
         try:
@@ -550,6 +662,14 @@ def parse_args(argv):
                    default=envd("PP_RENDER_MS", 0.0, float),
                    help="CPU burned per frame per session, standing in for "
                         "the render")
+    p.add_argument("--render-sock", default=envd("PP_RENDER_SOCK", ""),
+                   help="host:porta onde ler os quadros (PPRF) de um render "
+                        "externo, como o Unity. Vazio = só o gerador "
+                        "sintético, como no original")
+    p.add_argument("--render-pose",
+                   default=envd("PP_RENDER_POSE", "127.0.0.1:9300"),
+                   help="host:porta para onde repassar as poses, com o "
+                        "--render-sock")
     p.add_argument("--render-sleep", action=argparse.BooleanOptionalAction,
                    default=envd("PP_RENDER_SLEEP", "0") not in
                    ("0", "false", ""),

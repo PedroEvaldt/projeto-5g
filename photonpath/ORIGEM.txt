@@ -21,6 +21,11 @@ Alterações em relação ao original
 - src/photon_client.py: opção --pose-trace (variável PP_POSE_TRACE), da Fase 9. Cada pose leva, no padding, a amostra do
   passeio no formato !I7f (índice, x y z, qx qy qz qw), escolhida pelo relógio de parede, em laço. Por quê: o Unity precisa
   das poses para mover a câmera, e é o cliente quem as envia. Sem a opção, o padding segue zerado, como no original.
+- src/photon_server.py: opções --render-sock e --render-pose (PP_RENDER_SOCK, PP_RENDER_POSE), da Fase 9. O servidor repassa
+  cada pose a um render externo pelo loopback, lê os quadros codificados (PPRF) e põe os bytes do último nos pacotes, com os
+  carimbos da pose usada no quadro. Métricas novas: render_source, render_frame_age_seconds, frames_enc_truncated_total e
+  enc_bytes_last. Por quê: o conteúdo do quadro passa a vir do Unity, e o PhotonPath continua cuidando do envio e da medição.
+  Sem a opção, o gerador segue sintético, como no original; sem quadro novo por 0,5 s, o servidor também volta ao sintético.
 
 Conferir a cópia (da raiz do projeto-5g):
   git clone https://github.com/CarlosMenin/photonpath /tmp/pp      # baixa o repositório original
