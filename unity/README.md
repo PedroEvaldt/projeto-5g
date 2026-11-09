@@ -9,7 +9,8 @@
 | `Assets/Scripts/ControleVR.cs` | vai na Camera: lê a configuração, põe a câmera na pose (rede ou passeio), captura o quadro, resumo a cada 5 s |
 | `Assets/Scripts/ReceptorPoses.cs` | recebe as poses repassadas (UDP 9300) |
 | `Assets/Scripts/SaidaQuadros.cs` | readback da GPU, `ffmpeg` com NVENC ou x264 em CBR (ou JPEG sem `ffmpeg`), datagramas PPRF (UDP 9301) |
-| `Assets/Scripts/Passeio.cs` | lê o CSV do passeio e interpola; `GravadorPasseio` grava um passeio no Editor com WASD e mouse |
+| `Assets/Scripts/Passeio.cs` | lê o CSV do passeio e interpola |
+| `Assets/Scripts/GravadorPasseio.cs` | grava um passeio no Editor com WASD e mouse; enquanto estiver na câmera, o `ControleVR` fica desligado |
 | `Dockerfile`, `entrypoint.sh` | a imagem com GPU, VirtualGL e `ffmpeg`; quatro jeitos de "tela" sem monitor |
 | `../vr/gerar_passeio.py` | um passeio circular sintético, para testar antes de gravar o seu |
 | `../vr/testar_render.py` | faz o papel do PhotonPath: manda poses, recebe quadros, mede fps, render e tamanho |
@@ -31,7 +32,7 @@ Os dois scripts Python foram testados juntos em loopback: 60 fps, render de 3 ms
 3. **Importar o modelo:** arraste o FBX para `Assets/`, depois para a cena. Na aba *Inspector* do FBX, *Model > Scale Factor* e *Convert Units* costumam resolver um prédio que vem 100 vezes maior ou menor.
 4. **Decimar** (a meta é render ≤ 4 ms a 720p): apague mobiliário e detalhe que não aparecem no percurso; texturas com *Max Size* 1024; *Window > Rendering > Lighting*: luzes em *Baked* e *Generate Lighting*; sombras em tempo real desligadas na luz principal; *Window > Rendering > Occlusion Culling > Bake*.
 5. **A câmera:** na `Main Camera`, adicione o componente `ControleVR` (ele cria o resto). Apague o `AudioListener` se o Unity reclamar de áudio.
-6. **Gravar o passeio:** adicione também `GravadorPasseio` à câmera só para gravar. *Play*, aperte **R**, ande com WASD, olhe com o mouse, Q/E sobe e desce, 2 a 3 minutos passando por lugares diferentes (corredor simples, sala com janelas, área com textura), termine onde começou olhando para o mesmo lado, aperte **R** de novo. O CSV sai em `passeio.csv` na raiz do projeto. Depois, remova o `GravadorPasseio` e copie o CSV para `Assets/StreamingAssets/passeio.csv` (crie a pasta) e para `vr/passeio.csv` no projeto-5g.
+6. **Gravar o passeio:** com o *Play* desligado, adicione também `GravadorPasseio` à câmera. Enquanto ele estiver lá, o `ControleVR` fica desligado e a aba *Game* mostra o modelo. *Play*, clique na aba *Game*, aperte **R**, ande com WASD, olhe com o mouse, Q/E sobe e desce, Shift corre, 2 a 3 minutos passando por lugares diferentes (corredor simples, sala com janelas, área com textura), termine onde começou olhando para o mesmo lado, aperte **R** de novo e pare o *Play*. O mouse fica preso na janela (Esc solta); se a câmera girar errado no seu ambiente, desmarque *Travar Cursor* no componente. O CSV sai em `passeio.csv` na raiz do projeto. Depois, remova o `GravadorPasseio`, salve a cena e copie o CSV para `Assets/StreamingAssets/passeio.csv` (crie a pasta) e para `vr/passeio.csv` no projeto-5g.
    - Enquanto não gravar o seu, gere um circular: `python3 vr/gerar_passeio.py --centro X Z --raio 3 --altura 1.6 --out vr/passeio.csv`, com o centro dentro de um cômodo do modelo.
 7. **Medir no Editor:** *Window > Analysis > Profiler*, *Play* com `VR_MODO=autonomo` (no Editor, defina as variáveis no terminal antes de abrir o Unity, ou mude os padrões no topo do `ControleVR.cs`). O console mostra a linha `[medidor]` a cada 5 s. O que importa: `frame_ms p95` ≤ 16 e `render_ms p95` ≤ 8.
 

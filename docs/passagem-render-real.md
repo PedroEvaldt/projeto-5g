@@ -172,7 +172,8 @@ kubectl exec -n pfsevaldt $POD -c upf4 -- sh -c 'C=/sys/fs/cgroup$(cut -d: -f3 /
 | `unity/Assets/Scripts/ControleVR.cs` | Vai na `Main Camera`. Lê as variáveis `VR_*`, põe a câmera na pose (rede ou passeio), chama `cam.Render()`, captura, imprime `[medidor]` a cada 5 s |
 | `unity/Assets/Scripts/ReceptorPoses.cs` | UDP 9300: recebe o `PPOS` de 128 B + `recv_ns`, guarda a última pose; uma sessão nova recomeça a numeração |
 | `unity/Assets/Scripts/SaidaQuadros.cs` | `RenderTexture` → `AsyncGPUReadback` (sync ou async) → `ffmpeg` filho (NVENC ou x264, CBR, `-delay 0`, sem buffer) → separa por AUD → datagrama `PPRF` em UDP 9301. Modos `jpeg` e `nenhum` para teste. PNG a cada N s |
-| `unity/Assets/Scripts/Passeio.cs` | Lê o CSV do passeio e interpola em laço; `GravadorPasseio` grava um passeio no Editor (WASD, mouse, tecla R) |
+| `unity/Assets/Scripts/Passeio.cs` | Lê o CSV do passeio e interpola em laço |
+| `unity/Assets/Scripts/GravadorPasseio.cs` | Grava um passeio no Editor (WASD, mouse, tecla R); enquanto estiver na câmera, o `ControleVR` fica desligado |
 | `unity/Dockerfile`, `unity/entrypoint.sh` | `nvidia/cuda` base + Xvfb + VirtualGL 3.1.1 + `ffmpeg`; modos de tela `egl` (confirmado), `direto`, `xorg`, `cpu` |
 | `unity/README.md` | Passo a passo no PC, variáveis, sintomas e medidas |
 | `vr/gerar_passeio.py` | Passeio circular sintético (o que está em uso: centro 0 0, raio 3, altura 1,6, 60 s) |
@@ -207,9 +208,7 @@ raiz do nó (`nr_periods 0`), então o throttling se lê no caminho de `/proc/se
 ## O que falta, em ordem
 
 1. **Gravar o passeio de verdade** pelo museu (2 a 3 min, laço fechado, ambientes variados), substituindo o
-   circular. Antes, ajustar o `GravadorPasseio`: o `ControleVR` reposiciona a câmera a cada quadro e desliga a câmera
-   no `Awake`, mesmo com o componente desmarcado, então os dois não funcionam juntos como o `unity/README.md` descreve. O
-   CSV vai para `Assets/StreamingAssets/passeio.csv` e `vr/passeio.csv`. Depois, copiar `unity/Assets/Scripts/` para o
+   circular (passo a passo em `unity/README.md`, etapa A, item 6). O CSV vai para `Assets/StreamingAssets/passeio.csv` e `vr/passeio.csv`. Depois, copiar `unity/Assets/Scripts/` para o
    projeto, recompilar o player e publicar uma imagem com tag nova. A lista de cenas do build está vazia: o Unity
    compila a cena aberta, que tem de ser a `museu-cena-1`.
 2. **Olhar os quadros cortados** (2,9% no segundo ensaio) depois de gravar o passeio, que muda o tamanho dos quadros.

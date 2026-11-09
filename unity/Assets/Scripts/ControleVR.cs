@@ -39,6 +39,10 @@ public class ControleVR : MonoBehaviour
 
     void Awake()
     {
+        // Gravando um passeio no Editor, a câmera é do GravadorPasseio. Sem isto, o resto do Awake (que roda mesmo com
+        // o componente desmarcado) desligaria a câmera, e o Update a reposicionaria a cada frame.
+        if (Application.isEditor && GetComponent<GravadorPasseio>() != null) { enabled = false; return; }
+
         modo = Env("VR_MODO", modo);
         passeioCaminho = Env("VR_PASSEIO", string.IsNullOrEmpty(passeioCaminho) ? Path.Combine(Application.streamingAssetsPath, "passeio.csv") : passeioCaminho);
         int fps = int.Parse(Env("VR_FPS", "60"));

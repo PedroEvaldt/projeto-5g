@@ -1,4 +1,4 @@
-// A trajetória do usuário simulado: gravar no Editor e reproduzir no player.
+// A trajetória do usuário simulado, reproduzida no player (a gravação fica no GravadorPasseio.cs).
 //
 // CSV: t_s,x,y,z,qx,qy,qz,qw (o mesmo que vr/gerar_passeio.py escreve e que vr/testar_render.py lê).
 // Laço fechado: depois da última amostra volta à primeira.
@@ -51,58 +51,4 @@ public class Passeio
         posicao = Vector3.Lerp(pos[lo], pos[prox], f);
         rotacao = Quaternion.Slerp(rot[lo], rot[prox], f);
     }
-}
-
-/// <summary>
-/// Só no Editor: voo livre com WASD + mouse (Q/E sobe e desce, Shift corre), gravando a pose da câmera
-/// a `hz` por segundo. Aperte R para começar e parar; o CSV sai no caminho indicado. Termine perto de onde
-/// começou, olhando para a mesma direção, para o laço emendar sem salto.
-/// </summary>
-public class GravadorPasseio : MonoBehaviour
-{
-    public string caminho = "passeio.csv";
-    public float hz = 50f;
-    public float velocidade = 1.4f;                     // m/s, passo de quem anda
-    public float sensibilidade = 2f;
-
-    StreamWriter w;
-    float t0, proximo;
-    float yaw, pitch;
-
-    void Start() { var e = transform.eulerAngles; yaw = e.y; pitch = e.x; }
-
-    void Update()
-    {
-        yaw += Input.GetAxis("Mouse X") * sensibilidade;
-        pitch = Mathf.Clamp(pitch - Input.GetAxis("Mouse Y") * sensibilidade, -80f, 80f);
-        transform.rotation = Quaternion.Euler(pitch, yaw, 0f);
-        var v = velocidade * (Input.GetKey(KeyCode.LeftShift) ? 3f : 1f);
-        var d = new Vector3(Input.GetAxis("Horizontal"), 0f, Input.GetAxis("Vertical"));
-        var plano = Quaternion.Euler(0f, yaw, 0f) * d;                                  // anda no plano, não na direção do olhar
-        if (Input.GetKey(KeyCode.Q)) plano.y -= 1f;
-        if (Input.GetKey(KeyCode.E)) plano.y += 1f;
-        transform.position += plano * v * Time.deltaTime;
-
-        if (Input.GetKeyDown(KeyCode.R))
-        {
-            if (w == null)
-            {
-                w = new StreamWriter(caminho);
-                w.WriteLine("t_s,x,y,z,qx,qy,qz,qw");
-                t0 = Time.time; proximo = 0f;
-                Debug.Log($"[gravador] gravando em {caminho}; R de novo para parar");
-            }
-            else { w.Close(); w = null; Debug.Log("[gravador] parado"); }
-        }
-        if (w != null && Time.time - t0 >= proximo)
-        {
-            var ci = CultureInfo.InvariantCulture;
-            var p = transform.position; var q = transform.rotation;
-            w.WriteLine(string.Format(ci, "{0:F4},{1:F4},{2:F4},{3:F4},{4:F6},{5:F6},{6:F6},{7:F6}",
-                                      Time.time - t0, p.x, p.y, p.z, q.x, q.y, q.z, q.w));
-            proximo += 1f / hz;
-        }
-    }
-
-    void OnDisable() { w?.Close(); }
 }
