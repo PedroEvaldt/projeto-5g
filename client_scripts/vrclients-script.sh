@@ -8,7 +8,7 @@
 # ================= CONFIGURAÇÕES =================
 # Namespace do Kubernetes
 NAMESPACE="pfsevaldt"
-NODE_NAME="blacksabbath"
+NODE_NAME="molejo"
 # Configurações do Slice de VR (Slice 04)
 SLICE_SST=1
 SLICE_SD="000004"

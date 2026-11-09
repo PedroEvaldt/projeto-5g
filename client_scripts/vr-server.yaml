@@ -22,7 +22,7 @@ spec:
     spec:
       # Mesmo nó do dash-server: depois da UPF, a VR faz o mesmo caminho que o vídeo.
       nodeSelector:
-        kubernetes.io/hostname: blacksabbath
+        kubernetes.io/hostname: molejo
       volumes:
       - name: photonpath
         configMap:

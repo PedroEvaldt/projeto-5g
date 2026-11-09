@@ -2,7 +2,7 @@
 
 # ================= CONFIGURAÇÕES =================
 NAMESPACE="pfsevaldt"
-NODE_NAME="blacksabbath"
+NODE_NAME="molejo"
 # Configurações do Slice de Interferência (Slice 02)
 SLICE_SST=1
 SLICE_SD="000009"

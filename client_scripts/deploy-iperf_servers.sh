@@ -2,7 +2,7 @@
 
 # ================= CONFIGURAÇÕES =================
 NAMESPACE="pfsevaldt"
-NODE_NAME="blacksabbath"
+NODE_NAME="molejo"
 
 # A partir de qual número de servidor começar?
 START_ID=1

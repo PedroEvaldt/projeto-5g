@@ -14,7 +14,7 @@ spec:
         app: dash-server
     spec:
       nodeSelector:
-        kubernetes.io/hostname: blacksabbath  
+        kubernetes.io/hostname: molejo  
       containers:
       - name: dash-server
         image: rambo1802/dash-server:latest
