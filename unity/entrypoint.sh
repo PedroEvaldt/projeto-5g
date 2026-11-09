@@ -17,11 +17,12 @@ ARGS=(-screen-width "$LARGURA" -screen-height "$ALTURA" -screen-fullscreen 0 -lo
 
 # Tela virtual. Xvfb direto, e não xvfb-run: o xvfb-run travava sem imprimir nada dentro do container
 # (04/11/2026), enquanto o Xvfb iniciado à mão, com o DISPLAY exportado, funcionou de primeira.
+# -nolisten local: sem o socket abstrato, que com --network host é o mesmo para todos os containers da máquina.
 tela_virtual() {
-    Xvfb :99 -screen 0 "${LARGURA}x${ALTURA}x24" -nolisten tcp >/tmp/xvfb.log 2>&1 &
-    for _ in $(seq 1 50); do [ -S /tmp/.X11-unix/X99 ] && break; sleep 0.1; done
-    [ -S /tmp/.X11-unix/X99 ] || { echo "[entrypoint] o Xvfb não abriu:"; cat /tmp/xvfb.log; exit 1; }
-    export DISPLAY=:99
+    Xvfb :77 -screen 0 "${LARGURA}x${ALTURA}x24" -nolisten tcp -nolisten local >/tmp/xvfb.log 2>&1 &
+    for _ in $(seq 1 50); do [ -S /tmp/.X11-unix/X77 ] && break; sleep 0.1; done
+    [ -S /tmp/.X11-unix/X77 ] || { echo "[entrypoint] o Xvfb não abriu:"; cat /tmp/xvfb.log; exit 1; }
+    export DISPLAY=:77
 }
 
 echo "[entrypoint] player=$PLAYER tela=$MODO_TELA ${LARGURA}x${ALTURA}"

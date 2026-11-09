@@ -28,7 +28,7 @@ public class ControleVR : MonoBehaviour
     Passeio passeio;
     Camera cam;
     PoseVR poseAtual;
-    bool temPose, usandoPasseio, avisouSemPasseio;
+    bool usandoPasseio, avisouSemPasseio;
     float tPasseio;
     double tPoseAplicada;
     int quadros;
@@ -85,7 +85,7 @@ public class ControleVR : MonoBehaviour
         {
             if (usandoPasseio) Debug.Log("[controle] as poses voltaram");
             usandoPasseio = false;
-            poseAtual = p; temPose = true;
+            poseAtual = p;
             transform.SetPositionAndRotation(p.posicao, p.rotacao.normalized);
         }
         else
@@ -93,7 +93,6 @@ public class ControleVR : MonoBehaviour
             if (passeio == null)
             {
                 if (!avisouSemPasseio) { Debug.LogWarning("[controle] sem poses e sem passeio: nada para renderizar"); avisouSemPasseio = true; }
-                temPose = false;
                 return;
             }
             if (!usandoPasseio) Debug.Log(modo == "rede" ? "[controle] sem poses há 2 s: tocando o passeio sozinho" : "[controle] tocando o passeio");
@@ -102,7 +101,6 @@ public class ControleVR : MonoBehaviour
             passeio.Amostra(tPasseio, out var pos, out var rot);
             transform.SetPositionAndRotation(pos, rot);
             poseAtual = new PoseVR { seq = 0, tClientNs = 0, recvNs = 0, posicao = pos, rotacao = rot, tChegada = agora };
-            temPose = true;
         }
 
         cam.Render();                                          // renderiza esta pose no RenderTexture, agora
