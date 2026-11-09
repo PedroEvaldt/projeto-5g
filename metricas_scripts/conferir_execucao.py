@@ -19,8 +19,10 @@ sem janelas na L0 é resultado, não falha: vira aviso. As regras:
               cenário com intenções e nenhuma resposta do LLM (servidor do LLM fora do ar);
               uma UPF sem PFCP no TEST_END há mais de 30 s (o Open5GS travou e só volta recriando o pod) e o
               cliente dela sem sessão no fim (regra de 03/11/2026, depois do incidente da hvrl0_02; desde
-              04/11/2026 só descarta se o travamento chegou ao cliente, decisão do Pedro).
-  - aviso:    janelas com health=0 (até 10%; ficam fora da conta do SLA); a VR sem janela por mais de 60 s enquanto
+              04/11/2026 só descarta se o travamento chegou ao cliente, decisão do Pedro);
+              render real (vr.render: real no YAML, Fase 9) sem render_timeseries.csv, com render_source em 0 em algum
+              instante do teste ou com frames_late_total subindo.
+  - aviso:   janelas com health=0 (até 10%; ficam fora da conta do SLA); a VR sem janela por mais de 60 s enquanto
               ativa; um vídeo com os quadros parados por 60 s ou mais sem estar pausado; a VR vencendo com lance 0
               (conferência pendente da Fase 6); menos respostas do LLM que intenções; uma UPF sem PFCP por mais
               de 60 s durante o teste, mesmo voltando sozinha; uma UPF presa no fim com a sessão do cliente de pé
@@ -225,8 +227,21 @@ def conferir(pasta):
             if maior > BURACO_VR_S:
                 aviso.append(f"VR ativa sem janela por {maior:.0f} s")
 
+    # Render real (Fase 9): só nos YAMLs com vr.render: real
+    if (cfg.get("vr") or {}).get("render") == "real":
+        render_arq = pasta / "render_timeseries.csv"
+        if not render_arq.exists():
+            descartar.append("sem render_timeseries.csv (métricas do render real)")
+        else:
+            r = pd.read_csv(render_arq)
+            if (r["Render_Source"] < 1).any():
+                descartar.append("render real: render_source em 0 durante o teste (o Unity parou)")
+            atrasados = r["Frames_Late_Total"].max() - r["Frames_Late_Total"].min()
+            if atrasados > 0:
+                descartar.append(f"render real: {atrasados:.0f} quadros atrasados no servidor")
+
     # LLM: só nos cenários com intenções
-    intencoes = sum(1 for e in cfg.get("events", []) if e.get("type") == "priority_change")
+    intencoes =sum(1 for e in cfg.get("events", []) if e.get("type") == "priority_change")
     if intencoes:
         llm_arq = pasta / "llm_decisoes.csv"
         respostas = pd.read_csv(llm_arq)["Timestamp"].nunique() if llm_arq.exists() else 0

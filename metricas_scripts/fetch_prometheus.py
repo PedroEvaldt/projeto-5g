@@ -134,6 +134,30 @@ def extract_timeseries(prom_results, slice_name, metric_name):
         })
     return extracted
 
+def collect_render_data(input_dir, start_epoch, inicio_prom, fim_prom, dif):
+    """Render real (Fase 9): render_timeseries.csv, para o conferir_execucao.py. O min_over_time pega um
+    render_source em 0 mesmo entre duas amostras do step."""
+    rotulo = 'namespace="pfsevaldt", role="vr-app-01"'
+    consultas = {
+        'Render_Source': f'min_over_time(photonpath_server_render_source{{{rotulo}}}[{STEP}])',
+        'Frames_Late_Total': f'photonpath_server_frames_late_total{{{rotulo}}}',
+        'Enc_Truncated_Total': f'photonpath_server_frames_enc_truncated_total{{{rotulo}}}',
+        'Render_Frame_Age_S': f'photonpath_server_render_frame_age_seconds{{{rotulo}}}',
+    }
+    dfs = []
+    for coluna, consulta in consultas.items():
+        dados = extract_timeseries(query_prometheus(consulta, inicio_prom, fim_prom), 'vr', coluna)
+        if dados:
+            dfs.append(pd.DataFrame(dados).drop(columns='Slice').set_index('Timestamp_Epoch'))
+    if not dfs:
+        print("[AVISO] Sem as métricas do render real no Prometheus: render_timeseries.csv não foi gravado.")
+        return
+    df = pd.concat(dfs, axis=1).reset_index()
+    df['Timestamp_Epoch'] = (df['Timestamp_Epoch'] - dif).round(3)
+    df.insert(1, 'Timestamp_Offset_Seconds', (df['Timestamp_Epoch'] - start_epoch).round(1))
+    df.to_csv(os.path.join(input_dir, "render_timeseries.csv"), index=False)
+    print(f"[SUCESSO] Métricas do render real salvas em: {os.path.join(input_dir, 'render_timeseries.csv')}")
+
 def collect_infra_data(input_dir):
     start_epoch, end_epoch = get_test_time_window(input_dir)
     try:
@@ -196,6 +220,9 @@ def collect_infra_data(input_dir):
             q_uetx = f'sum(irate(container_network_transmit_bytes_total{{namespace="pfsevaldt", pod=~"{client_pod}.*", interface="uesimtun0"}}[{RATE_INTERVAL}])) * 8 / 1000'
             uetx_data = extract_timeseries(query_prometheus(q_uetx, inicio_prom, fim_prom), slice_name, 'UE_TX_Kbps')
             if uetx_data: all_dfs.append(pd.DataFrame(uetx_data))
+
+    if (test_config.get("vr") or {}).get("render") == "real":
+        collect_render_data(input_dir, start_epoch, inicio_prom, fim_prom, dif)
 
     if not all_dfs:
         print("\n[AVISO CRÍTICO] Nenhuma métrica foi retornada do Prometheus!")
