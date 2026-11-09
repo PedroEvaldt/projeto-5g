@@ -18,7 +18,9 @@ Regras
   trocar o commit acima, refazer as alterações da lista e explicar o motivo num commit próprio.
 
 Alterações em relação ao original
-- nenhuma até agora
+- src/photon_client.py: opção --pose-trace (variável PP_POSE_TRACE), da Fase 9. Cada pose leva, no padding, a amostra do
+  passeio no formato !I7f (índice, x y z, qx qy qz qw), escolhida pelo relógio de parede, em laço. Por quê: o Unity precisa
+  das poses para mover a câmera, e é o cliente quem as envia. Sem a opção, o padding segue zerado, como no original.
 
 Conferir a cópia (da raiz do projeto-5g):
   git clone https://github.com/CarlosMenin/photonpath /tmp/pp      # baixa o repositório original

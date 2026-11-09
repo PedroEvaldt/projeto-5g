@@ -45,6 +45,8 @@ Output: one CSV row per frame (for plots) plus a JSON summary on stdout
         --duration 60 --csv /tmp/edge.csv --label edge-run
 """
 import argparse
+import bisect
+import csv
 import json
 import os
 import random
@@ -59,6 +61,7 @@ import photon_clock
 POSE_MAGIC = b"PPOS"
 FRAME_MAGIC = b"PPFR"
 POSE_HDR = struct.Struct("!4sIQQI")
+POSE_PAD = struct.Struct("!I7f")    # --pose-trace: índice da amostra, x y z, qx qy qz qw
 FRAME_HDR = struct.Struct("!4sIQHHQQIII")
 FLAG_BYE = 1
 
@@ -69,6 +72,27 @@ def pct(values, q):
     k = (len(values) - 1) * q
     lo, hi = int(k), min(int(k) + 1, len(values) - 1)
     return values[lo] + (values[hi] - values[lo]) * (k - lo)
+
+
+def load_pose_trace(path, pad_bytes):
+    """Lê o passeio (t_s,x,y,z,qx,qy,qz,qw) e já monta o padding de cada
+    amostra. Devolve os tempos, os paddings e a duração do laço."""
+    if pad_bytes < POSE_PAD.size:
+        sys.exit("--pose-trace precisa de --pose-bytes >= "
+                 f"{POSE_HDR.size + POSE_PAD.size}")
+    cols = ("t_s", "x", "y", "z", "qx", "qy", "qz", "qw")
+    try:
+        with open(path, newline="") as fh:
+            rows = [[float(r[c]) for c in cols] for r in csv.DictReader(fh)]
+    except (OSError, KeyError, TypeError, ValueError) as e:
+        sys.exit(f"não consegui ler o passeio '{path}': {e!r}")
+    if len(rows) < 2:
+        sys.exit(f"{path}: o passeio precisa de pelo menos 2 amostras")
+    zeros = bytes(pad_bytes - POSE_PAD.size)
+    pads = [POSE_PAD.pack(i, *r[1:]) + zeros for i, r in enumerate(rows)]
+    # A última amostra emenda na primeira, com o mesmo passo das anteriores.
+    loop = rows[-1][0] + (rows[-1][0] - rows[-2][0])
+    return [r[0] for r in rows], pads, loop
 
 
 class Window:
@@ -144,6 +168,10 @@ class Client:
 
         if args.pose_hz <= 0:
             sys.exit("--pose-hz must be greater than zero")
+        self.trace = None
+        if args.pose_trace:
+            self.trace = load_pose_trace(args.pose_trace,
+                                         args.pose_bytes - POSE_HDR.size)
         host, _, port = args.server.rpartition(":")
         # Resolve once. sendto() with a hostname would do a DNS lookup per
         # packet. In Kubernetes the name comes from CoreDNS, so this is the
@@ -174,8 +202,14 @@ class Client:
         while self.running and time.perf_counter() < end:
             next_t += period
             seq += 1
-            pkt = POSE_HDR.pack(POSE_MAGIC, self.sid, seq,
-                                photon_clock.now_ns(), 0) + pad
+            t_ns = photon_clock.now_ns()
+            if self.trace:
+                # Pelo relógio de parede, e não pelo início deste processo: o
+                # vr_exporter roda o cliente em janelas de 12 s, e o passeio
+                # tem de continuar de uma janela para a outra.
+                times, pads, loop = self.trace
+                pad = pads[bisect.bisect_right(times, t_ns / 1e9 % loop) - 1]
+            pkt = POSE_HDR.pack(POSE_MAGIC, self.sid, seq, t_ns, 0) + pad
             try:
                 self.sock.sendto(pkt, self.dst)
                 self.tx_packets += 1
@@ -561,6 +595,10 @@ def parse_args(argv):
                    default=envd("PP_POSE_HZ", 250.0, float))
     p.add_argument("--pose-bytes", type=int,
                    default=envd("PP_POSE_BYTES", 128, int))
+    p.add_argument("--pose-trace", default=envd("PP_POSE_TRACE", ""),
+                   help="CSV do passeio (t_s,x,y,z,qx,qy,qz,qw): cada pose leva "
+                        "a amostra do momento no padding (!I7f), em laço. "
+                        "Vazio = padding zerado, como no original")
     p.add_argument("--session", type=int, default=envd("PP_SESSION", 0, int))
     p.add_argument("--csv", default=envd("PP_CSV", ""))
     p.add_argument("--json", default=envd("PP_JSON", ""))
