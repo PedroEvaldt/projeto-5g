@@ -36,6 +36,7 @@ threads no PC, e não conhecia Unity nem Blender antes deste trabalho.
 | 05/11 | Manter o Unity ao vivo no cluster, sem GPU, sem `nodeSelector`, deixando o Kubernetes escolher o nó com mais recursos (decisão do Pedro). **Superada em 09/11** | Preferência dele por ter o render acontecendo de verdade na execução. Partiu da informação errada de que nenhum nó tinha GPU |
 | 09/11 | UEs, gNBs, `dash-server` e `vr-app-01` saem do `blacksabbath`, que ficou NotReady, para o `molejo`, sem remedir nada (decisão do Pedro) | Os dois nós têm a mesma especificação; a Fase 8 continua como referência |
 | **09/11** | **Unity ao vivo com GPU, pedindo `nvidia.com/gpu: 1`, sem plano B. Se der errado, o Pedro vê o que fazer** (decisão do Pedro) | No cluster, 60 fps com GPU e 7 a 7,8 fps só com CPU (medidas abaixo). O render pré-computado saiu do plano |
+| 09/11 | A conferência do render real tolera até 0,1% de quadros atrasados no servidor e descarta com qualquer reancoragem do envio (decisão do Pedro) | No segundo ensaio foram 0,016%, sem reancoragem; com a regra antiga (zero), quase toda execução de ~20 min seria descartada |
 
 ## O que foi medido (04/11/2026, PC do Pedro: RTX 4060 Ti, 12 threads, Unity 2022.3.62f3, Linux)
 
@@ -137,6 +138,33 @@ agora recomeça a numeração no `ReceptorPoses`, e o servidor conta os quadros 
 diante), `hold_p95` de 35 a 39 ms, perda de 0 a 0,13% e `frames_late_total` 0. Os quadros cortados subiram para 117 de 4.320
 (2,7%): a causa não foi investigada, e o número precisa ser olhado no cluster.
 
+## O segundo ensaio no cluster (09/11/2026, imagem `fase9.1`)
+
+Mesmo testbed, `upf4` em 400m, 3 vídeos tocando, 45 janelas (~9,5 min). **Validou o render ao vivo com GPU:** o Unity
+seguiu o cliente em todas as 122 medições, e a rede ficou dentro do SLA calibrado em todas as janelas.
+
+| Medida | Resultado |
+| --- | --- |
+| `net_p95` | 2,44 a 3,97 ms (≤ 4,87) |
+| `hold_p95` / `m2p_p95` | 36,7 a 49,5 ms / 38,6 a 51,6 ms (sintético: `m2p_p95` de ~13 ms) |
+| Perda / continuidade / vazão | 0 a 0,155% / 99,57 a 99,91% / 8,04 a 8,06 Mbps |
+| Quadros sem pose | 0,22% (69 de 30.926) |
+| Unity | 60 fps, `render_ms` p95 ~23 ms, throttling 0 de 5.446 períodos |
+| Throttling da `upf4` / do `photon-server` | 2 de 5.249 períodos / 2 de 5.378 períodos |
+| `frames_late_total` / `frames_reanchored_total` | +5 em ~9 min (0,016%) / 0 |
+| Quadros cortados | 893 de 30.926 (2,9%) |
+
+O `hold` sobe e desce em ciclos de ~63 s, o que combina com os relógios de 60 Hz do Unity e do PhotonPath não serem
+sincronizados. Os 4 núcleos e 4 GiB do `unity-render` e os 300m do `photon-server` bastaram nesse ensaio.
+
+Para repetir, depois de `delete_testbeds.sh` e `build_testbeds.sh --render-real` (o build deixa a `upf4` em 150m):
+
+```bash
+POD=$(kubectl get pod -n pfsevaldt -l app=upf4 -o jsonpath='{.items[0].metadata.name}')   # acha o pod da upf4
+kubectl patch pod $POD -n pfsevaldt --subresource resize --type json -p '[{"op":"replace","path":"/spec/containers/0/resources/requests/cpu","value":"400m"},{"op":"replace","path":"/spec/containers/0/resources/limits/cpu","value":"400m"}]'   # sobe a CPU da upf4 para 400m, mexendo só nesses dois campos
+kubectl exec -n pfsevaldt $POD -c upf4 -- sh -c 'C=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); cat $C/cpu.max; grep -E "nr_periods|nr_throttled" $C/cpu.stat'   # mostra a cota aplicada (40000 100000 = 400m) e o throttling
+```
+
 ## O que existe no código
 
 | Arquivo | O que faz |
@@ -154,7 +182,7 @@ diante), `hold_p95` de 35 a 39 ms, perda de 0 a 0,13% e `frames_late_total` 0. O
 | `photonpath/src/photon_server.py` (`--render-sock`) | Repassa as poses, lê o `PPRF` e põe os bytes nos pacotes, com os carimbos da pose do quadro. Sem quadro novo por 0,5 s, volta ao sintético. Métricas `render_source`, `render_frame_age_seconds`, `frames_enc_truncated_total`, `enc_bytes_last` e `frames_pose_fallback_total` |
 | `client_scripts/vr-server-render.yaml` | O pod com `photon-server` e `unity-render`, o Service e o ServiceMonitor |
 | `scripts/build_testbeds.sh --render-real` | Sobe esse pod, põe o passeio no ConfigMap `vr-launcher` e liga o `PP_POSE_TRACE` no UE de VR |
-| `metricas_scripts/fetch_prometheus.py`, `conferir_execucao.py` | Com `vr.render: real` no YAML: grava o `render_timeseries.csv` e descarta a execução se `render_source` cair a 0, `frames_late_total` subir ou mais de 5% dos quadros saírem sem a pose da sessão |
+| `metricas_scripts/fetch_prometheus.py`, `conferir_execucao.py` | Com `vr.render: real` no YAML: grava o `render_timeseries.csv` e descarta a execução se `render_source` cair a 0, mais de 0,1% dos quadros atrasarem no servidor, o envio for reancorado ou mais de 5% dos quadros saírem sem a pose da sessão |
 
 **O contrato PhotonPath ↔ Unity** (em `docs/plano-render-real.md`): pose repassada = `PPOS` 128 B +
 `!Q recv_ns` (porta 9300); padding da pose = `!I7f` (índice, x y z, qx qy qz qw); quadro = `!4sQQQII`
@@ -178,26 +206,15 @@ raiz do nó (`nr_periods 0`), então o throttling se lê no caminho de `/proc/se
 
 ## O que falta, em ordem
 
-1. **Repetir o ensaio no cluster com a imagem `fase9.1` (etapa 5 do plano).** Na ledzeppelin, depois do `git pull`:
-   `delete_testbeds.sh`, `build_testbeds.sh --render-real` e a `upf4` em 400m (comandos abaixo). Critério: 10 min com
-   os 3 vídeos tocando, `health=1`, `render_source=1`, `frames_pose_fallback_total` abaixo de 5% de
-   `frames_sent_total`, `frames_late_total=0`, `frames_enc_truncated_total` perto de zero e throttling 0 nos dois
-   containers. Se os atrasos continuarem, decidir entre manter o zero e aceitar os descartes ou tolerar um limite
-   pequeno. Os limites do pod (`unity-render` com 4 núcleos e 4 GiB, `photon-server` com 300m) são os valores
-   iniciais do plano e saem desse ensaio. Atenção: o servidor fica num nó diferente do `dash-server` e dos UEs
-   (`molejo`), então o salto a mais (ponto 4 da tabela do plano) volta.
-
-   ```bash
-   POD=$(kubectl get pod -n pfsevaldt -l app=upf4 -o jsonpath='{.items[0].metadata.name}')   # acha o pod da upf4
-   kubectl patch pod $POD -n pfsevaldt --subresource resize --type json -p '[{"op":"replace","path":"/spec/containers/0/resources/requests/cpu","value":"400m"},{"op":"replace","path":"/spec/containers/0/resources/limits/cpu","value":"400m"}]'   # sobe a CPU da upf4 para 400m, mexendo só nesses dois campos
-   kubectl exec -n pfsevaldt $POD -c upf4 -- sh -c 'C=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); cat $C/cpu.max; grep -E "nr_periods|nr_throttled" $C/cpu.stat'   # mostra a cota aplicada (40000 100000 = 400m) e o throttling
-   ```
-2. **Gravar o passeio de verdade** pelo museu (2 a 3 min, laço fechado, ambientes variados), substituindo o
+1. **Gravar o passeio de verdade** pelo museu (2 a 3 min, laço fechado, ambientes variados), substituindo o
    circular. Antes, ajustar o `GravadorPasseio`: o `ControleVR` reposiciona a câmera a cada quadro e desliga a câmera
    no `Awake`, mesmo com o componente desmarcado, então os dois não funcionam juntos como o `unity/README.md` descreve. O
    CSV vai para `Assets/StreamingAssets/passeio.csv` e `vr/passeio.csv`. Depois, copiar `unity/Assets/Scripts/` para o
    projeto, recompilar o player e publicar uma imagem com tag nova. A lista de cenas do build está vazia: o Unity
    compila a cena aberta, que tem de ser a `museu-cena-1`.
+2. **Olhar os quadros cortados** (2,9% no segundo ensaio) depois de gravar o passeio, que muda o tamanho dos quadros.
+   O corte não muda o tráfego medido (os 14 pacotes saem iguais), mas o quadro perde o final. A taxa é a variável
+   `VR_BITRATE_KBPS` do pod e muda sem recompilar.
 3. **Combinar o uso da GPU com quem administra o cluster** antes das execuções longas: a placa fica exclusiva
    do pod enquanto ele existir.
 4. **Etapas 6 e 7** como no plano: `net_ref` e pisos com o servidor no nó de GPU e as execuções de validação
