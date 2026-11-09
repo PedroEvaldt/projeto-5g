@@ -3,7 +3,7 @@
 # ================= CONFIGURAÇÕES =================
 # Namespace do Kubernetes
 NAMESPACE="pfsevaldt"
-NODE_NAME="blacksabbath"
+NODE_NAME="molejo"
 # Configurações do Slice de Vídeo (Slice 01)
 SLICE_SST=1
 SLICE_SD="000003"
@@ -139,6 +139,11 @@ metadata:
   namespace: ${NAMESPACE}
 spec:
   replicas: 1
+  # Fase 8: o rollout restart do run_experiment_tmux.sh mata o pod antigo antes de subir o novo. Com o
+  # RollingUpdate, os dois ficavam de pé juntos com o mesmo IMSI, e o AMF às vezes parava de encaminhar
+  # os pedidos de sessão do novo (o vídeo esperava a uesimtun0 para sempre).
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: ${POD_NAME}
