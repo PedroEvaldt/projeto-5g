@@ -14,8 +14,11 @@ threads no PC, e não conhecia Unity nem Blender antes deste trabalho.
 - Branch: `vr-photonpath` (o trabalho entrou pelo merge `3296e9d6`, de 05/11/2026).
 - Pastas novas: `unity/` (scripts C#, Dockerfile, entrypoint, README) e, em `vr/`, `gerar_passeio.py`,
   `testar_render.py` e `render_falso.py`.
-- Nada em `photonpath/`, `spade_agents/`, `client_scripts/`, `scripts/` ou `tests_configs/` foi tocado por
-  este trabalho. A Fase 8 (30 execuções × 5 combinações) terminou em 05/11/2026, com o PhotonPath sintético.
+- Mudanças fora dessas pastas (09/11/2026), todas desligadas por padrão: `photonpath/src/` (listadas no
+  `ORIGEM.txt`), `client_scripts/vr-server-render.yaml` e `vrclients-script.sh`, `scripts/build_testbeds.sh` e
+  `delete_testbeds.sh`, `metricas_scripts/fetch_prometheus.py` e `conferir_execucao.py`. Nada em `spade_agents/`
+  ou `tests_configs/` foi tocado. A Fase 8 (30 execuções × 5 combinações) terminou em 05/11/2026, com o
+  PhotonPath sintético.
 
 ## Decisões tomadas, na ordem
 
@@ -87,6 +90,25 @@ verdade (`poses=0`) nem PhotonPath.
 Never`, sem `nodeSelector` (o pedido de GPU já limita aos nós com placa) e as variáveis `MODO_TELA=egl`,
 `VR_ENCODER=nvenc`, `VR_READBACK=sync`, `VR_BITRATE_KBPS=6500` e `VR_MODO=autonomo`.
 
+## A cadeia completa no PC (09/11/2026)
+
+`photon_client` → `photon_server` → Unity (RTX 4060 Ti, `VR_MODO=rede`) → `photon_server` → `photon_client`, em
+loopback, 30 s, com 8 Mbps a 60 fps. Referência: o sintético dá `hold` p95 de ~11 ms nas mesmas condições.
+
+| Medida | 6500 kbps | 6000 kbps |
+| --- | --- | --- |
+| Quadros / perda / continuidade | 1799 / 0,05% / 99,94% | 1799 / 0,02% / 99,89% |
+| `hold` p50 / p95 | 33 / 49 ms | 46 / 48 ms |
+| `net` p95 | 0,02 ms | 0,02 ms |
+| `render_us` mediana | 22,2 ms | 22,3 ms |
+| `frames_late_total` | 0 | 0 |
+| Quadros cortados (acima de 16.128 B) | 22 de 1800 | 14 de 1800 |
+
+O `hold` soma o render e a codificação (~22 ms), a espera pelo próximo envio do PhotonPath (0 a 16,7 ms) e o
+espalhamento dos pacotes (~8 ms). A espera muda de uma execução para outra, provavelmente porque os relógios de 60 Hz
+do Unity e do PhotonPath não são sincronizados. Baixar a taxa quase não reduziu os cortes, então a taxa ficou em
+6500 kbps. Com o `render_falso.py`, a perda foi 0%: a perda pequena com o Unity real precisa ser olhada no ensaio.
+
 ## O que existe no código
 
 | Arquivo | O que faz |
@@ -100,6 +122,11 @@ Never`, sem `nodeSelector` (o pedido de GPU já limita aos nós com placa) e as 
 | `vr/gerar_passeio.py` | Passeio circular sintético (o que está em uso: centro 0 0, raio 3, altura 1,6, 60 s) |
 | `vr/testar_render.py` | Faz o papel do PhotonPath: manda poses a 250 Hz, recebe `PPRF`, mede fps, render, tamanho, idade; `--salvar` grava o H.264 |
 | `vr/render_falso.py` | O Unity de mentira, para testar o medidor e, na etapa 3, o `photon_server` |
+| `photonpath/src/photon_client.py` (`--pose-trace`) | Cada pose leva a amostra do passeio, escolhida pelo relógio de parede, porque o exporter reinicia o cliente a cada 12 s |
+| `photonpath/src/photon_server.py` (`--render-sock`) | Repassa as poses, lê o `PPRF` e põe os bytes nos pacotes, com os carimbos da pose do quadro. Sem quadro novo por 0,5 s, volta ao sintético. Métricas `render_source`, `render_frame_age_seconds`, `frames_enc_truncated_total` e `enc_bytes_last` |
+| `client_scripts/vr-server-render.yaml` | O pod com `photon-server` e `unity-render`, o Service e o ServiceMonitor |
+| `scripts/build_testbeds.sh --render-real` | Sobe esse pod, põe o passeio no ConfigMap `vr-launcher` e liga o `PP_POSE_TRACE` no UE de VR |
+| `metricas_scripts/fetch_prometheus.py`, `conferir_execucao.py` | Com `vr.render: real` no YAML: grava o `render_timeseries.csv` e descarta a execução se `render_source` cair a 0 ou `frames_late_total` subir |
 
 **O contrato PhotonPath ↔ Unity** (em `docs/plano-render-real.md`): pose repassada = `PPOS` 128 B +
 `!Q recv_ns` (porta 9300); padding da pose = `!I7f` (índice, x y z, qx qy qz qw); quadro = `!4sQQQII`
@@ -120,27 +147,19 @@ display `:99` para todos (`docker ps -q --filter ancestor=vr-render | xargs -r d
 
 ## O que falta, em ordem
 
-1. **Pequenos, já propostos e aprovados em princípio, não aplicados:** no `entrypoint.sh`, Xvfb com
-   `-nolisten local` e display `:77` (evita a briga pelo socket abstrato com `--network host`); limpar o
-   aviso CS0414 (`temPose` sem uso) no `ControleVR.cs`.
+1. **Ensaio do pod no cluster (etapa 5 do plano), ainda não feito.** Na ledzeppelin, depois do `git pull`:
+   `delete_testbeds.sh` e `build_testbeds.sh --render-real`. Critério: 10 min com os 3 vídeos tocando, `health=1`,
+   `render_source=1`, `frames_late_total=0`, `frames_enc_truncated_total` perto de zero e throttling 0 nos dois
+   containers. Os limites do pod (`unity-render` com 4 núcleos e 4 GiB, `photon-server` com 300m) são os valores
+   iniciais do plano e saem desse ensaio. Atenção: o servidor fica num nó diferente do `dash-server` e dos UEs
+   (`molejo`), então o salto a mais (ponto 4 da tabela do plano) volta.
 2. **Gravar o passeio de verdade** pelo museu com o `GravadorPasseio` (2 a 3 min, laço fechado, ambientes
-   variados), substituindo o circular. Vai para `Assets/StreamingAssets/passeio.csv` e `vr/passeio.csv`. A
-   imagem `fase9` tem o circular: depois disso, gerar e publicar uma imagem nova.
-3. **Etapa 3 do plano, no PhotonPath:** `--render-sock` no `photon_server.py` (repassa poses, lê `PPRF`,
-   payload real, métricas `render_source`, `render_frame_age_seconds`, `frames_enc_truncated_total`,
-   `enc_bytes_last`; sem `PPRF`, volta ao sintético) e `--pose-trace` no `photon_client.py`. Testar em
-   loopback com o `render_falso.py` e depois com o player. Dois commits listados no `ORIGEM.txt`.
-4. **Etapa 5, o pod:** `client_scripts/vr-server-render.yaml` com dois containers (`photon-server` com
-   `PP_RENDER_SOCK`, `unity-render` com a imagem), `runtimeClassName: nvidia`, `limits: nvidia.com/gpu: 1`
-   no `unity-render`, **sem `nodeSelector`**, requests = limits de CPU e memória nos dois (medir quanto o
-   Unity gasta: o teste de 09/11 rodou sem limite de CPU), imagem no Docker Hub, ServiceMonitor do
-   `vr-app-01`, regra nova no `conferir_execucao.py` (`render_source` e `frames_late_total`), opção
-   `--render-real` no `build_testbeds.sh`. Atenção: o servidor fica num nó diferente do `dash-server` e dos
-   UEs (`molejo`), então o salto a mais (ponto 4 da tabela do plano) volta e o `net_ref` precisa ser
-   remedido.
-5. **Combinar o uso da GPU com quem administra o cluster** antes das execuções longas: a placa fica exclusiva
+   variados), substituindo o circular. Vai para `Assets/StreamingAssets/passeio.csv` e `vr/passeio.csv`. Depois,
+   copiar `unity/Assets/Scripts/` para o projeto, recompilar o player e publicar uma imagem nova: a `fase9` tem o
+   passeio circular e não tem o Xvfb em `:77` nem a limpeza do CS0414 (a limpeza ainda não foi compilada).
+3. **Combinar o uso da GPU com quem administra o cluster** antes das execuções longas: a placa fica exclusiva
    do pod enquanto ele existir.
-6. **Etapas 6 e 7** como no plano: conferir pisos e `net_ref`, e as execuções de validação (5 × `hvr_l2`,
-   5 × `hvr_l0`).
-7. **Atualizar `docs/plano-render-real.md`** com as decisões de 09/11 e as medidas desta passagem (ele ainda
+4. **Etapas 6 e 7** como no plano: `net_ref` e pisos com o servidor no nó de GPU e as execuções de validação
+   (5 × `hvr_l2`, 5 × `hvr_l0`), com YAMLs novos que tenham `vr.render: real`.
+5. **Atualizar `docs/plano-render-real.md`** com as decisões de 09/11 e as medidas desta passagem (ele ainda
    cita o `blacksabbath` e um `nodeSelector` no nó de GPU).
