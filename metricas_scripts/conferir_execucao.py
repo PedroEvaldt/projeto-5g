@@ -21,7 +21,8 @@ sem janelas na L0 é resultado, não falha: vira aviso. As regras:
               cliente dela sem sessão no fim (regra de 03/11/2026, depois do incidente da hvrl0_02; desde
               04/11/2026 só descarta se o travamento chegou ao cliente, decisão do Pedro);
               render real (vr.render: real no YAML, Fase 9) sem render_timeseries.csv, com render_source em 0 em algum
-              instante do teste ou com frames_late_total subindo.
+              instante do teste, com frames_late_total subindo ou com mais de 5% dos quadros sem a pose da sessão
+              (o Unity não seguiu o cliente).
   - aviso:   janelas com health=0 (até 10%; ficam fora da conta do SLA); a VR sem janela por mais de 60 s enquanto
               ativa; um vídeo com os quadros parados por 60 s ou mais sem estar pausado; a VR vencendo com lance 0
               (conferência pendente da Fase 6); menos respostas do LLM que intenções; uma UPF sem PFCP por mais
@@ -46,6 +47,7 @@ MIN_FRACAO = 0.8          # amostras e rodadas: menos que isso é um processo qu
 MAX_HEALTH0 = 0.10        # fração de janelas da VR com health=0 acima da qual o instrumento não vale
 BURACO_VR_S = 60          # VR ativa sem janela por mais que isso
 VIDEO_PARADO_S = 60       # quadros sem mudar, com o vídeo tocando, por mais que isso
+MAX_SEM_POSE = 0.05       # render real: os primeiros quadros de cada janela da VR saem sem a pose dela; acima disso, o Unity não seguiu o cliente
 PFCP_PRESA_S = 30         # UPF sem PFCP no TEST_END há mais que isso: presa (as quedas normais voltam antes)
 PFCP_QUEDA_S = 60         # UPF sem PFCP por mais que isso durante o teste, mesmo voltando
 SESSAO_MIN_S = 10         # sessão que durou menos que isso foi recusada (com a UPF presa, o UE tenta a cada ~7,5 s)
@@ -239,6 +241,10 @@ def conferir(pasta):
             atrasados = r["Frames_Late_Total"].max() - r["Frames_Late_Total"].min()
             if atrasados > 0:
                 descartar.append(f"render real: {atrasados:.0f} quadros atrasados no servidor")
+            enviados = r["Frames_Sent_Total"].max() - r["Frames_Sent_Total"].min()
+            sem_pose = r["Frames_Pose_Fallback_Total"].max() - r["Frames_Pose_Fallback_Total"].min()
+            if enviados > 0 and sem_pose / enviados > MAX_SEM_POSE:
+                descartar.append(f"render real: {100 * sem_pose / enviados:.1f}% dos quadros sem a pose da sessão (o Unity não seguiu o cliente)")
 
     # LLM: só nos cenários com intenções
     intencoes =sum(1 for e in cfg.get("events", []) if e.get("type") == "priority_change")

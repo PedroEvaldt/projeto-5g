@@ -143,6 +143,8 @@ def collect_render_data(input_dir, start_epoch, inicio_prom, fim_prom, dif):
         'Frames_Late_Total': f'photonpath_server_frames_late_total{{{rotulo}}}',
         'Enc_Truncated_Total': f'photonpath_server_frames_enc_truncated_total{{{rotulo}}}',
         'Render_Frame_Age_S': f'photonpath_server_render_frame_age_seconds{{{rotulo}}}',
+        'Frames_Sent_Total': f'photonpath_server_frames_sent_total{{{rotulo}}}',
+        'Frames_Pose_Fallback_Total': f'photonpath_server_frames_pose_fallback_total{{{rotulo}}}',
     }
     dfs = []
     for coluna, consulta in consultas.items():

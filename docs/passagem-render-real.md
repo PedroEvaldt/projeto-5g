@@ -109,12 +109,40 @@ espalhamento dos pacotes (~8 ms). A espera muda de uma execução para outra, pr
 do Unity e do PhotonPath não são sincronizados. Baixar a taxa quase não reduziu os cortes, então a taxa ficou em
 6500 kbps. Com o `render_falso.py`, a perda foi 0%: a perda pequena com o Unity real precisa ser olhada no ensaio.
 
+## O primeiro ensaio no cluster (09/11/2026)
+
+Imagem `fase9`, `build_testbeds.sh --render-real`, servidor no `vanhalen`, UEs no `molejo`. **Validou a rede, mas
+não o render.** O `ReceptorPoses` só aceitava pose com `seq` maior ou igual ao maior já visto, e o `vr_exporter`
+recria o cliente a cada 12 s, com o `seq` de volta a 1. O Unity descartava as poses novas e, depois de 2 s, tocava
+o passeio sozinho (274 de 324 medições com `fonte=passeio`). O quadro do passeio não traz `recv_ns`, então o
+servidor usava os carimbos do sintético: `hold_p95` de ~11 ms, menos que os ~22 ms do render, com `render_source=1`.
+O teste no PC não pegou isso porque era uma sessão única de 30 s, sem o exporter.
+
+| Medida (47 janelas, 3 vídeos tocando, `upf4` em 400m) | Resultado | Vale? |
+| --- | --- | --- |
+| `net_p95` | 2,58 a 4,61 ms (SLA ≤ 4,87, calibrado sem o salto até o `vanhalen`) | Sim |
+| Perda / continuidade / vazão | 0 a 0,27% / 99,66 a 99,91% / 8,03 a 8,06 Mbps | Sim |
+| Throttling da `upf4` em 400m | 2 de 1.466 períodos | Sim |
+| Unity | 60 fps, `render_ms` p95 ~23 ms, throttling 0 | Sim |
+| `hold_p95` ~11 ms e `m2p_p95` ~13 ms | Carimbos do caminho sintético | **Não** |
+| Quadros cortados | ~0,18%, com o passeio interno | Não para o render seguindo o cliente |
+| `frames_late_total` | 5, 13 e 25 em três leituras; o throttling do `photon-server` quase não subiu | Medir de novo |
+
+Com a `upf4` em 150m (o valor em que o build a deixa), o `net_p95` ficou entre 17 e 149 ms, fora do SLA em todas
+as janelas.
+
+**O conserto (imagem `fase9.1`, testada no PC com o cliente recriado a cada 12 s, 6 janelas).** Uma sessão nova
+agora recomeça a numeração no `ReceptorPoses`, e o servidor conta os quadros enviados sem a pose da sessão
+(`frames_pose_fallback_total`). Resultado: 0,14 a 0,28% de quadros sem pose (100% com a imagem antiga, da 2ª janela em
+diante), `hold_p95` de 35 a 39 ms, perda de 0 a 0,13% e `frames_late_total` 0. Os quadros cortados subiram para 117 de 4.320
+(2,7%): a causa não foi investigada, e o número precisa ser olhado no cluster.
+
 ## O que existe no código
 
 | Arquivo | O que faz |
 | --- | --- |
 | `unity/Assets/Scripts/ControleVR.cs` | Vai na `Main Camera`. Lê as variáveis `VR_*`, põe a câmera na pose (rede ou passeio), chama `cam.Render()`, captura, imprime `[medidor]` a cada 5 s |
-| `unity/Assets/Scripts/ReceptorPoses.cs` | UDP 9300: recebe o `PPOS` de 128 B + `recv_ns`, guarda a última pose |
+| `unity/Assets/Scripts/ReceptorPoses.cs` | UDP 9300: recebe o `PPOS` de 128 B + `recv_ns`, guarda a última pose; uma sessão nova recomeça a numeração |
 | `unity/Assets/Scripts/SaidaQuadros.cs` | `RenderTexture` → `AsyncGPUReadback` (sync ou async) → `ffmpeg` filho (NVENC ou x264, CBR, `-delay 0`, sem buffer) → separa por AUD → datagrama `PPRF` em UDP 9301. Modos `jpeg` e `nenhum` para teste. PNG a cada N s |
 | `unity/Assets/Scripts/Passeio.cs` | Lê o CSV do passeio e interpola em laço; `GravadorPasseio` grava um passeio no Editor (WASD, mouse, tecla R) |
 | `unity/Dockerfile`, `unity/entrypoint.sh` | `nvidia/cuda` base + Xvfb + VirtualGL 3.1.1 + `ffmpeg`; modos de tela `egl` (confirmado), `direto`, `xorg`, `cpu` |
@@ -123,10 +151,10 @@ do Unity e do PhotonPath não são sincronizados. Baixar a taxa quase não reduz
 | `vr/testar_render.py` | Faz o papel do PhotonPath: manda poses a 250 Hz, recebe `PPRF`, mede fps, render, tamanho, idade; `--salvar` grava o H.264 |
 | `vr/render_falso.py` | O Unity de mentira, para testar o medidor e, na etapa 3, o `photon_server` |
 | `photonpath/src/photon_client.py` (`--pose-trace`) | Cada pose leva a amostra do passeio, escolhida pelo relógio de parede, porque o exporter reinicia o cliente a cada 12 s |
-| `photonpath/src/photon_server.py` (`--render-sock`) | Repassa as poses, lê o `PPRF` e põe os bytes nos pacotes, com os carimbos da pose do quadro. Sem quadro novo por 0,5 s, volta ao sintético. Métricas `render_source`, `render_frame_age_seconds`, `frames_enc_truncated_total` e `enc_bytes_last` |
+| `photonpath/src/photon_server.py` (`--render-sock`) | Repassa as poses, lê o `PPRF` e põe os bytes nos pacotes, com os carimbos da pose do quadro. Sem quadro novo por 0,5 s, volta ao sintético. Métricas `render_source`, `render_frame_age_seconds`, `frames_enc_truncated_total`, `enc_bytes_last` e `frames_pose_fallback_total` |
 | `client_scripts/vr-server-render.yaml` | O pod com `photon-server` e `unity-render`, o Service e o ServiceMonitor |
 | `scripts/build_testbeds.sh --render-real` | Sobe esse pod, põe o passeio no ConfigMap `vr-launcher` e liga o `PP_POSE_TRACE` no UE de VR |
-| `metricas_scripts/fetch_prometheus.py`, `conferir_execucao.py` | Com `vr.render: real` no YAML: grava o `render_timeseries.csv` e descarta a execução se `render_source` cair a 0 ou `frames_late_total` subir |
+| `metricas_scripts/fetch_prometheus.py`, `conferir_execucao.py` | Com `vr.render: real` no YAML: grava o `render_timeseries.csv` e descarta a execução se `render_source` cair a 0, `frames_late_total` subir ou mais de 5% dos quadros saírem sem a pose da sessão |
 
 **O contrato PhotonPath ↔ Unity** (em `docs/plano-render-real.md`): pose repassada = `PPOS` 128 B +
 `!Q recv_ns` (porta 9300); padding da pose = `!I7f` (índice, x y z, qx qy qz qw); quadro = `!4sQQQII`
@@ -143,20 +171,33 @@ de `unity/Assets/Scripts/`, passeio em `Assets/StreamingAssets/passeio.csv`. Bui
 `-batchmode` não renderiza câmeras no player; o Blender exporta luzes e câmeras junto (usar *Limit to:
 Selected Objects* ou desmarcar `Import Lights`/`Import Cameras` no Unity); `xvfb-run` trava no container;
 com `--network host`, containers deixados vivos (Ctrl+C num `docker run` sem `-it` não os mata) seguram o
-display `:99` para todos (`docker ps -q --filter ancestor=vr-render | xargs -r docker kill`).
+display `:99` para todos (`docker ps -q --filter ancestor=vr-render | xargs -r docker kill`); `render_source=1` só
+diz que chegam quadros do Unity, não que ele segue o cliente; `kubectl patch --type merge` em `containers` troca a
+lista inteira (usar `--type json`, como o `upf_set_resources.py`); a UPF é privilegiada e o `/sys/fs/cgroup` dela é a
+raiz do nó (`nr_periods 0`), então o throttling se lê no caminho de `/proc/self/cgroup`, como abaixo.
 
 ## O que falta, em ordem
 
-1. **Ensaio do pod no cluster (etapa 5 do plano), ainda não feito.** Na ledzeppelin, depois do `git pull`:
-   `delete_testbeds.sh` e `build_testbeds.sh --render-real`. Critério: 10 min com os 3 vídeos tocando, `health=1`,
-   `render_source=1`, `frames_late_total=0`, `frames_enc_truncated_total` perto de zero e throttling 0 nos dois
-   containers. Os limites do pod (`unity-render` com 4 núcleos e 4 GiB, `photon-server` com 300m) são os valores
+1. **Repetir o ensaio no cluster com a imagem `fase9.1` (etapa 5 do plano).** Na ledzeppelin, depois do `git pull`:
+   `delete_testbeds.sh`, `build_testbeds.sh --render-real` e a `upf4` em 400m (comandos abaixo). Critério: 10 min com
+   os 3 vídeos tocando, `health=1`, `render_source=1`, `frames_pose_fallback_total` abaixo de 5% de
+   `frames_sent_total`, `frames_late_total=0`, `frames_enc_truncated_total` perto de zero e throttling 0 nos dois
+   containers. Se os atrasos continuarem, decidir entre manter o zero e aceitar os descartes ou tolerar um limite
+   pequeno. Os limites do pod (`unity-render` com 4 núcleos e 4 GiB, `photon-server` com 300m) são os valores
    iniciais do plano e saem desse ensaio. Atenção: o servidor fica num nó diferente do `dash-server` e dos UEs
    (`molejo`), então o salto a mais (ponto 4 da tabela do plano) volta.
-2. **Gravar o passeio de verdade** pelo museu com o `GravadorPasseio` (2 a 3 min, laço fechado, ambientes
-   variados), substituindo o circular. Vai para `Assets/StreamingAssets/passeio.csv` e `vr/passeio.csv`. Depois,
-   copiar `unity/Assets/Scripts/` para o projeto, recompilar o player e publicar uma imagem nova: a `fase9` tem o
-   passeio circular e não tem o Xvfb em `:77` nem a limpeza do CS0414 (a limpeza ainda não foi compilada).
+
+   ```bash
+   POD=$(kubectl get pod -n pfsevaldt -l app=upf4 -o jsonpath='{.items[0].metadata.name}')   # acha o pod da upf4
+   kubectl patch pod $POD -n pfsevaldt --subresource resize --type json -p '[{"op":"replace","path":"/spec/containers/0/resources/requests/cpu","value":"400m"},{"op":"replace","path":"/spec/containers/0/resources/limits/cpu","value":"400m"}]'   # sobe a CPU da upf4 para 400m, mexendo só nesses dois campos
+   kubectl exec -n pfsevaldt $POD -c upf4 -- sh -c 'C=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); cat $C/cpu.max; grep -E "nr_periods|nr_throttled" $C/cpu.stat'   # mostra a cota aplicada (40000 100000 = 400m) e o throttling
+   ```
+2. **Gravar o passeio de verdade** pelo museu (2 a 3 min, laço fechado, ambientes variados), substituindo o
+   circular. Antes, ajustar o `GravadorPasseio`: o `ControleVR` reposiciona a câmera a cada quadro e desliga a câmera
+   no `Awake`, mesmo com o componente desmarcado, então os dois não funcionam juntos como o `unity/README.md` descreve. O
+   CSV vai para `Assets/StreamingAssets/passeio.csv` e `vr/passeio.csv`. Depois, copiar `unity/Assets/Scripts/` para o
+   projeto, recompilar o player e publicar uma imagem com tag nova. A lista de cenas do build está vazia: o Unity
+   compila a cena aberta, que tem de ser a `museu-cena-1`.
 3. **Combinar o uso da GPU com quem administra o cluster** antes das execuções longas: a placa fica exclusiva
    do pod enquanto ele existir.
 4. **Etapas 6 e 7** como no plano: `net_ref` e pisos com o servidor no nó de GPU e as execuções de validação
