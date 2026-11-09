@@ -44,6 +44,7 @@ public class ReceptorPoses : MonoBehaviour
     volatile bool rodando;
     readonly object trava = new object();
     PoseVR ultima;
+    uint ultimaSessao;
     bool temPose;
     static readonly System.Diagnostics.Stopwatch relogio = System.Diagnostics.Stopwatch.StartNew();
 
@@ -92,9 +93,12 @@ public class ReceptorPoses : MonoBehaviour
                 recvNs = b.Length >= 136 ? BE.U64(b, b.Length - 8) : 0,   // os 8 B finais são o recv_ns anexado
                 tChegada = Agora,
             };
+            uint sessao = BE.U32(b, 4);
             lock (trava)
             {
-                if (!temPose || p.seq >= ultima.seq) { ultima = p; temPose = true; }
+                // O seq recomeça a cada sessão, e o vr_exporter recria o cliente a cada janela de 12 s:
+                // sem olhar a sessão, as poses novas ficariam para trás do maior seq já visto.
+                if (!temPose || sessao != ultimaSessao || p.seq >= ultima.seq) { ultima = p; ultimaSessao = sessao; temPose = true; }
                 posesRecebidas++;
             }
         }
