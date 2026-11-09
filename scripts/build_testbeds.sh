@@ -5,6 +5,8 @@
 #   ./build_testbeds.sh            sobe tudo
 #   ./build_testbeds.sh --sem-vr   sobe tudo menos a VR (servidor e UE), como na v1.0-video;
 #                                  os assinantes 07 e 08 da slice04 são registrados mesmo assim
+#   ./build_testbeds.sh --render-real   sobe a VR com o modelo 3D renderizado de verdade (Unity com GPU, Fase 9),
+#                                       em vez do PhotonPath sintético
 
 set -euo pipefail
 
@@ -13,10 +15,12 @@ PROJECT_DIR="/home/pfsevaldt/dev/projeto-5g"
 NS=pfsevaldt
 TMP_DIR="$PROJECT_DIR/scripts/tmp"
 COM_VR=true
+RENDER_REAL=false
 
 for arg in "$@"; do
     case "$arg" in
         --sem-vr) COM_VR=false ;;
+        --render-real) RENDER_REAL=true ;;
         *) echo "Opção desconhecida: $arg"; exit 1 ;;
     esac
 done
@@ -129,7 +133,15 @@ main() {
         set -- $cm                                             # separa: nome do ConfigMap e arquivo
         kubectl create configmap "$1" -n "$NS" --from-file="$PROJECT_DIR/$2" --dry-run=client -o yaml | kubectl apply -f -   # cria ou atualiza o ConfigMap
       done
-      kubectl apply -f "$PROJECT_DIR/client_scripts/vr-server.yaml"   # servidor de VR (vr-app-01), no nó blacksabbath
+      if $RENDER_REAL; then
+        # delete + create: o kubectl apply guarda o conteúdo numa anotação de até 256 kB, e o passeio pode passar disso
+        kubectl delete configmap vr-launcher -n "$NS" --ignore-not-found
+        kubectl create configmap vr-launcher -n "$NS" --from-file="$PROJECT_DIR/vr/pp_launcher.py" --from-file="$PROJECT_DIR/vr/passeio.csv"
+        kubectl apply -f "$PROJECT_DIR/client_scripts/vr-server-render.yaml"   # PhotonPath + Unity (vr-app-01), num nó com GPU livre
+        export VR_POSE_TRACE=/opt/vr/passeio.csv                               # o UE de VR manda as poses do passeio
+      else
+        kubectl apply -f "$PROJECT_DIR/client_scripts/vr-server.yaml"   # servidor de VR (vr-app-01), no nó molejo
+      fi
       check_pods
       bash "$PROJECT_DIR/client_scripts/vrclients-script.sh"   # UE de VR (ue-vr-07, slice04), com o exporter
       check_pods

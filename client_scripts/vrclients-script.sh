@@ -22,6 +22,8 @@ COUNT=1
 
 # Imagem do cliente de VR: os scripts vêm dos ConfigMaps, não precisa de imagem própria
 APP_IMAGE="python:3.12-slim"
+# Passeio do render real (Fase 9), dentro do pod; vazio = poses sem passeio, para o PhotonPath sintético
+POSE_TRACE="${VR_POSE_TRACE:-}"
 # =================================================
 
 echo "--- Iniciando Deploy de Clientes de VR ${DNN} ---"
@@ -236,6 +238,9 @@ spec:
             # Rótulo das métricas: a fatia deste script
             - name: VR_SLICE
               value: "${DNN}"
+            # O photon_client lê esta variável; o vr_exporter só a repassa ao processo filho
+            - name: PP_POSE_TRACE
+              value: "${POSE_TRACE}"
           ports:
             - name: metrics
               containerPort: 9200

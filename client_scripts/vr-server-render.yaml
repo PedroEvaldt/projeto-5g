@@ -1,0 +1,146 @@
+# Servidor de VR com o modelo 3D renderizado de verdade (Fase 9), no lugar do client_scripts/vr-server.yaml.
+# O photon-server (PhotonPath) fala com a rede e mede; o unity-render desenha e codifica o quadro. Os dois ficam no
+# mesmo pod e conversam pelo loopback: poses para 127.0.0.1:9300, quadros para 127.0.0.1:9301.
+# Mesmos nomes do manifesto sintético (Deployment e Service vr-app-01): o UE de VR acha o servidor do mesmo jeito.
+#
+# Sobe com:
+#   scripts/build_testbeds.sh --render-real   # sobe o testbed com este manifesto e o passeio no UE de VR
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vr-app-01
+  namespace: pfsevaldt
+spec:
+  replicas: 1
+  # A GPU é exclusiva do pod: com RollingUpdate, a troca precisaria de uma segunda GPU livre.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: vr-app-01
+  template:
+    metadata:
+      labels:
+        app: vr-app-01
+    spec:
+      # Sem nodeSelector: pedir nvidia.com/gpu já limita o cluster aos nós com placa livre.
+      runtimeClassName: nvidia
+      volumes:
+      - name: photonpath
+        configMap:
+          name: photonpath
+      - name: vr-launcher
+        configMap:
+          name: vr-launcher
+      containers:
+      - name: photon-server
+        image: python:3.12-slim
+        command: ["python3", "-u", "/opt/vr/pp_launcher.py", "photon_server.py"]
+        ports:
+        - name: udp-9100
+          protocol: UDP
+          containerPort: 9100
+        - name: metrics-9101
+          protocol: TCP
+          containerPort: 9101
+        env:
+        # Perfil vr8, igual ao sintético: mesmo tráfego na upf4.
+        - name: PP_BITRATE_MBPS
+          value: "8"
+        - name: PP_FPS
+          value: "60"
+        - name: PP_PACE_DUTY
+          value: "0.5"
+        - name: PP_RENDER_MS
+          value: "0"
+        - name: PP_MTU
+          value: "1200"
+        - name: PP_ROLE
+          value: "vr-app-01"
+        - name: PP_PROFILE
+          value: "vr8-render"
+        # Onde o Unity entrega os quadros. As poses vão para 127.0.0.1:9300, o padrão de PP_RENDER_POSE.
+        - name: PP_RENDER_SOCK
+          value: "127.0.0.1:9301"
+        # requests = limits em CPU e memória: QoS Guaranteed, como no sintético.
+        resources:
+          requests:
+            cpu: 300m
+            memory: 256Mi
+          limits:
+            cpu: 300m
+            memory: 256Mi
+        securityContext:
+          capabilities:
+            add: ["NET_ADMIN"]
+        volumeMounts:
+        - name: photonpath
+          mountPath: /opt/photonpath
+          readOnly: true
+        - name: vr-launcher
+          mountPath: /opt/vr
+          readOnly: true
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 9101
+          initialDelaySeconds: 3
+          periodSeconds: 10
+      - name: unity-render
+        image: pedroevaldt/vr-render:fase9
+        env:
+        - name: VR_MODO
+          value: "rede"
+        - name: MODO_TELA
+          value: "egl"
+        - name: VR_ENCODER
+          value: "nvenc"
+        - name: VR_READBACK
+          value: "sync"
+        - name: VR_BITRATE_KBPS
+          value: "6500"
+        resources:
+          requests:
+            cpu: "4"
+            memory: 4Gi
+            nvidia.com/gpu: 1
+          limits:
+            cpu: "4"
+            memory: 4Gi
+            nvidia.com/gpu: 1
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vr-app-01
+  namespace: pfsevaldt
+  labels:
+    app: vr-app-01
+spec:
+  selector:
+    app: vr-app-01
+  ports:
+  - name: udp-9100
+    protocol: UDP
+    port: 9100
+    targetPort: 9100
+  - name: metrics-9101
+    protocol: TCP
+    port: 9101
+    targetPort: 9101
+---
+# O Prometheus guarda render_source e frames_late_total de cada execução (fetch_prometheus.py -> render_timeseries.csv).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: vr-app-01
+  namespace: pfsevaldt
+  labels:
+    app: vr-app-01
+spec:
+  selector:
+    matchLabels:
+      app: vr-app-01
+  endpoints:
+  - interval: 5s
+    port: metrics-9101
