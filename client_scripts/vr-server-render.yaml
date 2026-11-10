@@ -87,7 +87,7 @@ spec:
           initialDelaySeconds: 3
           periodSeconds: 10
       - name: unity-render
-        image: pedroevaldt/vr-render:fase9.1
+        image: pedroevaldt/vr-render:fase9.2
         env:
         - name: VR_MODO
           value: "rede"

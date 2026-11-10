@@ -20,6 +20,7 @@ public class GravadorPasseio : MonoBehaviour
     StreamWriter w;
     float t0, proximo;
     float yaw, pitch;
+    Vector3 inicio;
 
     void Start()
     {
@@ -48,7 +49,7 @@ public class GravadorPasseio : MonoBehaviour
             {
                 w = new StreamWriter(caminho);
                 w.WriteLine("t_s,x,y,z,qx,qy,qz,qw");
-                t0 = Time.time; proximo = 0f;
+                t0 = Time.time; proximo = 0f; inicio = transform.position;
                 Debug.Log($"[gravador] gravando em {caminho}; R de novo para parar");
             }
             else { w.Close(); w = null; Debug.Log("[gravador] parado"); }
@@ -61,6 +62,15 @@ public class GravadorPasseio : MonoBehaviour
                                       Time.time - t0, p.x, p.y, p.z, q.x, q.y, q.z, q.w));
             proximo += 1f / hz;
         }
+    }
+
+    // Na tela, durante a gravação: quanto já durou e a que distância está do ponto em que o laço tem de fechar.
+    void OnGUI()
+    {
+        GUI.skin.label.fontSize = 20;
+        var p = transform.position;
+        var estado = w == null ? "R: começa a gravar" : $"gravando {Time.time - t0:F0} s, a {Vector3.Distance(p, inicio):F1} do início";
+        GUI.Label(new Rect(10, 10, 900, 40), $"{estado} | x {p.x:F1} y {p.y:F1} z {p.z:F1}");
     }
 
     void OnDisable() { w?.Close(); }

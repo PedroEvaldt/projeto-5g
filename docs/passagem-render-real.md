@@ -1,4 +1,4 @@
-# Passagem: o modelo 3D renderizado no servidor de VR (estado em 09/11/2026)
+# Passagem: o modelo 3D renderizado no servidor de VR (estado em 10/11/2026)
 
 Documento de passagem para quem continuar este trabalho. Resume o que foi decidido, o que foi medido, o que
 existe no código e o que falta, em ordem. O plano completo da fase está em `docs/plano-render-real.md`
@@ -165,6 +165,31 @@ kubectl patch pod $POD -n pfsevaldt --subresource resize --type json -p '[{"op":
 kubectl exec -n pfsevaldt $POD -c upf4 -- sh -c 'C=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); cat $C/cpu.max; grep -E "nr_periods|nr_throttled" $C/cpu.stat'   # mostra a cota aplicada (40000 100000 = 400m) e o throttling
 ```
 
+## O passeio gravado (10/11/2026, imagem `fase9.2`)
+
+O Pedro gravou um passeio pelo museu no Editor, com o `GravadorPasseio`, e ele substituiu o circular: 2 min 16 s
+(6.795 amostras a 50 Hz), 197 de caminho numa área de 38 × 57, altura fixa de 1,58, 4,9 s parado (nenhuma parada
+de 2 s). O laço fecha a 0,07 do início (o passo entre amostras é de ~0,03), mas com 16° de diferença na direção: a
+cada volta, a câmera gira 16° de uma vez, ~6 vezes numa execução de 15 min. Ficou assim, sem regravar.
+
+O `vr/passeio.csv` não vai pelo git (o `.gitignore` ignora `*.csv`): copiar à mão para a ledzeppelin. O mesmo
+arquivo está em `Assets/StreamingAssets/passeio.csv` no projeto Unity e dentro do build. Com 477 kB, cabe no
+ConfigMap (limite de 1 MiB, ~5 min de passeio a 50 Hz).
+
+Teste no PC com o cliente recriado a cada 12 s (12 janelas, uma volta inteira, `VR_READBACK=sync`, 6500 kbps):
+
+| Medida | Passeio gravado | Circular (09/11) |
+| --- | --- | --- |
+| Quadros sem pose | 0,28% (24 de 8.640) | 0,14 a 0,28% |
+| `frames_late_total` | 0 | 0 |
+| Quadros cortados | **0,42%** (36 de 8.640) | 2,7% (117 de 4.320) |
+| `hold_p95` / `m2p_p95` | 34 a 50 ms | 35 a 39 ms |
+| Perda / vazão | 0 a 0,107% / 8,04 a 8,06 Mbps | 0 a 0,13% / igual |
+| Unity | 60 fps, `render_ms` p95 22,6 ms, 13,5 kB, 3 descartados em ~9.000 | igual |
+
+Render, codificador e taxa são os mesmos: a queda dos cortados veio do conteúdo das imagens. O que no circular
+gerava quadros maiores não foi investigado. A vazão não muda com o passeio (CBR).
+
 ## O que existe no código
 
 | Arquivo | O que faz |
@@ -176,7 +201,7 @@ kubectl exec -n pfsevaldt $POD -c upf4 -- sh -c 'C=/sys/fs/cgroup$(cut -d: -f3 /
 | `unity/Assets/Scripts/GravadorPasseio.cs` | Grava um passeio no Editor (WASD, mouse, tecla R); enquanto estiver na câmera, o `ControleVR` fica desligado |
 | `unity/Dockerfile`, `unity/entrypoint.sh` | `nvidia/cuda` base + Xvfb + VirtualGL 3.1.1 + `ffmpeg`; modos de tela `egl` (confirmado), `direto`, `xorg`, `cpu` |
 | `unity/README.md` | Passo a passo no PC, variáveis, sintomas e medidas |
-| `vr/gerar_passeio.py` | Passeio circular sintético (o que está em uso: centro 0 0, raio 3, altura 1,6, 60 s) |
+| `vr/gerar_passeio.py` | Passeio circular sintético (usado até 10/11/2026: centro 0 0, raio 3, altura 1,6, 60 s) |
 | `vr/testar_render.py` | Faz o papel do PhotonPath: manda poses a 250 Hz, recebe `PPRF`, mede fps, render, tamanho, idade; `--salvar` grava o H.264 |
 | `vr/render_falso.py` | O Unity de mentira, para testar o medidor e, na etapa 3, o `photon_server` |
 | `photonpath/src/photon_client.py` (`--pose-trace`) | Cada pose leva a amostra do passeio, escolhida pelo relógio de parede, porque o exporter reinicia o cliente a cada 12 s |
@@ -207,16 +232,16 @@ raiz do nó (`nr_periods 0`), então o throttling se lê no caminho de `/proc/se
 
 ## O que falta, em ordem
 
-1. **Gravar o passeio de verdade** pelo museu (2 a 3 min, laço fechado, ambientes variados), substituindo o
-   circular (passo a passo em `unity/README.md`, etapa A, item 6). O CSV vai para `Assets/StreamingAssets/passeio.csv` e `vr/passeio.csv`. Depois, copiar `unity/Assets/Scripts/` para o
-   projeto, recompilar o player e publicar uma imagem com tag nova. A lista de cenas do build está vazia: o Unity
-   compila a cena aberta, que tem de ser a `museu-cena-1`.
-2. **Olhar os quadros cortados** (2,9% no segundo ensaio) depois de gravar o passeio, que muda o tamanho dos quadros.
-   O corte não muda o tráfego medido (os 14 pacotes saem iguais), mas o quadro perde o final. A taxa é a variável
-   `VR_BITRATE_KBPS` do pod e muda sem recompilar.
-3. **Combinar o uso da GPU com quem administra o cluster** antes das execuções longas: a placa fica exclusiva
+1. **Olhar os quadros cortados no cluster** com o passeio gravado (2,9% no segundo ensaio, com o circular; 0,42% no
+   PC com o gravado). O corte não muda o tráfego medido (os 14 pacotes saem iguais), mas o quadro perde o final. A
+   taxa é a variável `VR_BITRATE_KBPS` do pod e muda sem recompilar.
+2. **Combinar o uso da GPU com quem administra o cluster** antes das execuções longas: a placa fica exclusiva
    do pod enquanto ele existir.
-4. **Etapas 6 e 7** como no plano: `net_ref` e pisos com o servidor no nó de GPU e as execuções de validação
+3. **Etapas 6 e 7** como no plano: `net_ref` e pisos com o servidor no nó de GPU e as execuções de validação
    (5 × `hvr_l2`, 5 × `hvr_l0`), com YAMLs novos que tenham `vr.render: real`.
-5. **Atualizar `docs/plano-render-real.md`** com as decisões de 09/11 e as medidas desta passagem (ele ainda
+4. **Atualizar `docs/plano-render-real.md`** com as decisões de 09/11 e as medidas desta passagem (ele ainda
    cita o `blacksabbath` e um `nodeSelector` no nó de GPU).
+
+Para regravar o passeio: `unity/README.md`, etapa A, item 6. O CSV vai para `Assets/StreamingAssets/passeio.csv`
+e `vr/passeio.csv`; depois, recompilar o player (a lista de cenas do build está vazia: o Unity compila a cena
+aberta, que tem de ser a `museu-cena-1`) e publicar uma imagem com tag nova.
