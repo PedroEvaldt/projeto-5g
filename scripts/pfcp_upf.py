@@ -240,7 +240,8 @@ def tunel_ok(ue, espera_s=0):
 
 def reiniciar_ue_vr(ue):
     """Recria o UE de VR: apaga o deployment, espera o pod sumir (o IMSI não pode ficar registrado duas vezes; o
-    rollout restart sobe o novo antes) e roda o vrclients-script.sh. Devolve (deu certo, o que aconteceu)."""
+    rollout restart sobe o novo antes) e roda o vrclients-script.sh, com o passeio se o vr-app-01 é o do render real.
+    Devolve (deu certo, o que aconteceu)."""
     t0 = time.monotonic()
     r = kubectl("delete", "deployment", ue, "--ignore-not-found", timeout=60)
     if r.returncode != 0:
@@ -248,7 +249,11 @@ def reiniciar_ue_vr(ue):
     kubectl("wait", "--for=delete", "pod", "-l", f"app={ue}", "--timeout=180s", timeout=210)   # sem pod, já saiu
     if kubectl("get", "pod", "-l", f"app={ue}", "-o", "name").stdout.strip():
         return False, "o pod antigo do UE não sumiu em 180 s"
-    r = subprocess.run(["bash", str(REPO / "client_scripts" / "vrclients-script.sh")], cwd=REPO,
+    # Render real (Fase 9): o UE volta com o passeio, como o build_testbeds.sh --render-real o sobe (o ConfigMap
+    # vr-launcher continua com o passeio.csv). Sem ele, o Unity não segue o cliente e a execução é descartada
+    nomes = kubectl("get", "deployment", "vr-app-01", "-o", "jsonpath={.spec.template.spec.containers[*].name}").stdout.split()
+    env = {**os.environ, "VR_POSE_TRACE": "/opt/vr/passeio.csv"} if "unity-render" in nomes else None
+    r = subprocess.run(["bash", str(REPO / "client_scripts" / "vrclients-script.sh")], cwd=REPO, env=env,
                        capture_output=True, text=True, timeout=120)
     if r.returncode != 0:
         return False, f"vrclients-script.sh falhou: {r.stderr.strip()[-200:]}"
