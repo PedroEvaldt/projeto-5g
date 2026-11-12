@@ -35,6 +35,10 @@ Uso (da raiz do repositório), com todos os CSVs que valem de uma vez (ver o LEI
   venv/bin/python vr/graficos_calibracao.py metricas_scripts/resultados/calibracao/calib_cpu_20261027_184453.csv ... \
       --com-video metricas_scripts/resultados/calibracao/calib_cpu_20261030_104624.csv
 
+Fase 9 (render real no metallica): a mesma conta, com o yaml à parte, que as execuções com vr.calibracao leem:
+  venv/bin/python vr/graficos_calibracao.py <banda> <cpu sem vídeo> --com-video <cpu com vídeo> \
+      --yaml vr/calibracao_render.yaml --descricao "Fase 9: servidor de VR com o render real no metallica"
+
 Saída: figuras/calib_<recurso>.pdf e .png, na pasta do primeiro CSV, uma tabela por ponto no terminal e,
 com os dois recursos, o vr/calibracao.yaml.
 """
