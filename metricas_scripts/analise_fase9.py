@@ -4,7 +4,11 @@ Análise da Fase 9: as execuções com o render real (resultados/fase9/) compara
 
 Uso (de metricas_scripts/):
     ../venv/bin/python analise_fase9.py                    # lê resultados/fase9/ e resultados/fase8_analise/
-    ../venv/bin/python analise_fase9.py <pasta da fase 9> <por_execucao.csv da fase 8> <saída>
+    ../venv/bin/python analise_fase9.py <pasta da fase 9> <por_execucao.csv da fase 8> <saída> [rótulo] [rótulo da referência]
+
+    # o controle (servidor sintético no metallica) contra a Fase 8, e o render real contra o controle:
+    ../venv/bin/python analise_fase9.py resultados/fase9s resultados/fase8_analise/por_execucao.csv resultados/fase9s_analise Controle
+    ../venv/bin/python analise_fase9.py resultados/fase9 resultados/fase9s_analise/por_execucao.csv resultados/fase9_vs_9s "Fase 9" Controle
 
 Cada execução da Fase 9 passa pelo mesmo analisar() do analise_fase8.py, com o SLA da calibração dela (vr.calibracao
 do config.yaml: o vr/calibracao_render.yaml). A Fase 8 vem do por_execucao.csv que o analise_fase8.py gravou.
@@ -16,6 +20,8 @@ caem nessa faixa e a diferença das médias, com o IC de 95% e o p do teste t de
 Só da Fase 9, do render_timeseries.csv: quadros cortados, sem a pose da sessão, atrasados e reancorados.
 
 Grava em <saída> (padrão: resultados/fase9_analise/): por_execucao.csv, tabelas.md e um tabela_<nome>.csv por tabela.
+Os rótulos (padrão "Fase 9" e "Fase 8") nomeiam as colunas. A referência pode ser o por_execucao.csv de outra
+análise deste script (ex.: o do controle). Entram só as combinações com pasta em <pasta da fase 9>.
 """
 import sys
 import warnings
@@ -32,7 +38,9 @@ BASE = Path(__file__).resolve().parent
 FASE9 = Path(sys.argv[1]) if len(sys.argv) > 1 else BASE / "resultados" / "fase9"
 FASE8 = Path(sys.argv[2]) if len(sys.argv) > 2 else BASE / "resultados" / "fase8_analise" / "por_execucao.csv"
 SAIDA = Path(sys.argv[3]) if len(sys.argv) > 3 else BASE / "resultados" / "fase9_analise"
-RES = FASE9.parent                       # onde ficam o fase9_fila.csv e o fase9_reparos.csv
+ROTULO = sys.argv[4] if len(sys.argv) > 4 else "Fase 9"
+REF = sys.argv[5] if len(sys.argv) > 5 else "Fase 8"
+RES = FASE9.parent                       # onde ficam o <pasta>_fila.csv e o <pasta>_reparos.csv (ex.: fase9_fila.csv)
 COMBINACOES = ["hvr_l0", "hvr_l2", "scvr_l2"]
 NET_MAX_FASE8 = 4.87                     # o limite do net do vr/calibracao.yaml (Fase 8), para a linha de conferência
 
@@ -95,8 +103,8 @@ def faixa(x8, casas):
 
 
 def comparar(f8, f9, combo, linhas):
-    """Uma linha por métrica: Fase 8 e Fase 9 (média ± IC), a faixa da Fase 8, quantas da Fase 9 caem nela e a
-    diferença das médias (Fase 9 − Fase 8) com o IC de 95% e o p do teste t de Welch."""
+    """Uma linha por métrica: referência e Fase 9 (média ± IC), a faixa da referência, quantas da Fase 9 caem nela e
+    a diferença das médias (Fase 9 − referência) com o IC de 95% e o p do teste t de Welch."""
     a, b = f8[f8["combinacao"] == combo], f9[f9["combinacao"] == combo]
     corpo = []
     for col, rotulo, casas in linhas:
@@ -114,19 +122,21 @@ def comparar(f8, f9, combo, linhas):
             p = "—" if np.isnan(r.pvalue) else ("< 0,001" if r.pvalue < 0.001 else a8.num(r.pvalue, 3))
         corpo.append([rotulo, a8.celula(xa, casas, len(a)), faixa(xa, casas), a8.celula(xb, casas, len(b)), dentro,
                       dif, ic, p])
-    return pd.DataFrame(corpo, columns=["Métrica", "Fase 8", "Faixa da Fase 8", "Fase 9", "Fase 9 na faixa",
-                                        "Fase 9 − Fase 8", "IC 95%", "p (Welch)"])
+    return pd.DataFrame(corpo, columns=["Métrica", REF, f"Faixa: {REF}", ROTULO, f"{ROTULO} na faixa",
+                                        f"{ROTULO} − {REF}", "IC 95%", "p (Welch)"])
 
 
 def main():
     SAIDA.mkdir(parents=True, exist_ok=True)
     f8 = pd.read_csv(FASE8)
-    f8 = f8[f8["combinacao"].isin(COMBINACOES)]
+    # só as combinações dos dois lados (o controle só tem a hvr_l2)
+    combinacoes = [c for c in COMBINACOES if (FASE9 / c).exists() and (f8["combinacao"] == c).any()]
+    f8 = f8[f8["combinacao"].isin(combinacoes)]
 
     metricas = []
-    for c in COMBINACOES:
+    for c in combinacoes:
         pastas = sorted(p for p in (FASE9 / c).iterdir() if (p / "veredito.txt").exists()) if (FASE9 / c).exists() else []
-        print(f"[LER] {c}: {len(pastas)} execuções da Fase 9, {(f8['combinacao'] == c).sum()} da Fase 8")
+        print(f"[LER] {c}: {len(pastas)} execuções ({ROTULO}), {(f8['combinacao'] == c).sum()} ({REF})")
         for p in pastas:
             sla = calibracao_vr.ler(p)["sla"]
             m, _ = a8.analisar(p, c, sla)
@@ -137,39 +147,39 @@ def main():
     f9 = pd.DataFrame(metricas)
     if f9.empty:
         sys.exit(f"[ERRO] Nenhuma execução com veredito.txt em {FASE9}")
-    f8 = f8.assign(vr_sla_pct_limite_f8=f8["vr_sla_pct"])           # na Fase 8, o limite é o dela
+    if "vr_sla_pct_limite_f8" not in f8:
+        f8 = f8.assign(vr_sla_pct_limite_f8=f8["vr_sla_pct"])       # na Fase 8, o limite é o dela
     f9.to_csv(SAIDA / "por_execucao.csv", index=False)
 
-    texto = ["# Fase 9: render real × Fase 8", "",
-             f"Gerado pelo `metricas_scripts/analise_fase9.py`: {len(f9)} execuções válidas da Fase 9 "
-             f"({', '.join(f'{c}: {(f9.combinacao == c).sum()}' for c in COMBINACOES)}), comparadas com as da Fase 8 "
-             f"({', '.join(f'{c}: {(f8.combinacao == c).sum()}' for c in COMBINACOES)}). Limite do net da Fase 9: "
-             f"{', '.join(sorted({a8.num(v, 2) for v in f9['net_max_ms']}))} ms (Fase 8: {a8.num(NET_MAX_FASE8, 2)} ms).", ""]
+    texto = [f"# {ROTULO} × {REF}", "",
+             f"Gerado pelo `metricas_scripts/analise_fase9.py`: {len(f9)} execuções válidas em `{FASE9.name}` ({ROTULO}: "
+             f"{', '.join(f'{c}: {(f9.combinacao == c).sum()}' for c in combinacoes)}), comparadas com as de "
+             f"`{FASE8}` ({REF}: {', '.join(f'{c}: {(f8.combinacao == c).sum()}' for c in combinacoes)}). Limite do net "
+             f"({ROTULO}): {', '.join(sorted({a8.num(v, 2) for v in f9['net_max_ms']}))} ms (Fase 8: {a8.num(NET_MAX_FASE8, 2)} ms).", ""]
     tabelas = []
 
     # Execuções da fila
-    fila_arq, rep_arq = RES / "fase9_fila.csv", RES / "fase9_reparos.csv"
+    fila_arq, rep_arq = RES / f"{FASE9.name}_fila.csv", RES / f"{FASE9.name}_reparos.csv"
     if fila_arq.exists():
         fila = pd.read_csv(fila_arq)
         reparos = pd.read_csv(rep_arq) if rep_arq.exists() else pd.DataFrame(columns=["antes_de"])
         linhas = []
-        for c in COMBINACOES:
+        for c in combinacoes:
             f = fila[fila["combinacao"] == c]
             d = f9[f9["combinacao"] == c]
             linhas.append({"Combinação": " ".join(a8.COMBINACOES[c]), "Válidas": len(d),
                            "Com aviso": int((d["veredito"] == "aviso").sum()), "Tentativas": len(f),
                            "Descartadas": int((f["status"] == "falhou").sum()),
-                           # os nomes da Fase 9: hvr_l2 -> hvrl2r_01 (o prefixo do scripts/fila_fase8.py)
-                           "Consertos antes dela": int(reparos["antes_de"].astype(str)
-                                                       .str.startswith(c.replace("_", "") + "r_").sum())})
-        tabelas.append(("execucoes", "Execuções da fila", "Tentativas, descartes e consertos automáticos "
-                        "(fase9_fila.csv e fase9_reparos.csv).", pd.DataFrame(linhas)))
+                           # consertos feitos antes de uma tentativa desta combinação (pelo nome dela na fila)
+                           "Consertos antes dela": int(reparos["antes_de"].astype(str).isin(f["nome"]).sum())})
+        tabelas.append(("execucoes", "Execuções da fila", f"Tentativas, descartes e consertos automáticos "
+                        f"({fila_arq.name} e {rep_arq.name}).", pd.DataFrame(linhas)))
 
-    for c in COMBINACOES:
+    for c in combinacoes:
         cenario = a8.COMBINACOES[c][0]
-        tabelas.append((c, f"{' '.join(a8.COMBINACOES[c])}: Fase 8 × Fase 9",
-                        "Média ± IC de 95% entre as execuções; a faixa é o mínimo e o máximo das execuções da Fase 8. "
-                        "Cada fase julga a VR pela sua calibração; a 2ª linha julga a Fase 9 com o limite do net da Fase 8.",
+        tabelas.append((c, f"{' '.join(a8.COMBINACOES[c])}: {REF} × {ROTULO}",
+                        f"Média ± IC de 95% entre as execuções; a faixa é o mínimo e o máximo das execuções ({REF}). "
+                        f"Cada um julga a VR pela sua calibração; a 2ª linha julga as duas com o limite do net da Fase 8.",
                         comparar(f8, f9, c, METRICAS_VR + video(cenario) + METRICAS_PFCP)))
 
     rend = [("render_cortados_pct", "Quadros cortados (%)", 2), ("render_sem_pose_pct", "Quadros sem a pose da sessão (%)", 2),
@@ -178,10 +188,11 @@ def main():
     corpo = []
     for col, rotulo, casas in rend:
         corpo.append([rotulo] + [a8.celula(f9.loc[f9["combinacao"] == c, col], casas, (f9["combinacao"] == c).sum())
-                                 if col in f9 else "—" for c in COMBINACOES])
-    tabelas.append(("render", "O render nas execuções (só Fase 9)", "Média ± IC de 95%; contadores do photon_server no "
-                    "Prometheus (render_timeseries.csv), do começo ao fim de cada execução.",
-                    pd.DataFrame(corpo, columns=["Métrica"] + [" ".join(a8.COMBINACOES[c]) for c in COMBINACOES])))
+                                 if col in f9 else "—" for c in combinacoes])
+    if "render_enviados" in f9:                                     # o controle sintético não tem render_timeseries.csv
+        tabelas.append(("render", f"O render nas execuções ({ROTULO})", "Média ± IC de 95%; contadores do photon_server no "
+                        "Prometheus (render_timeseries.csv), do começo ao fim de cada execução.",
+                        pd.DataFrame(corpo, columns=["Métrica"] + [" ".join(a8.COMBINACOES[c]) for c in combinacoes])))
 
     for nome, titulo, nota, t in tabelas:
         t.to_csv(SAIDA / f"tabela_{nome}.csv", index=False)
