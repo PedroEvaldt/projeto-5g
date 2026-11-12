@@ -1,4 +1,4 @@
-# Passagem: o modelo 3D renderizado no servidor de VR (estado em 10/11/2026)
+# Passagem: o modelo 3D renderizado no servidor de VR (estado em 12/11/2026)
 
 Documento de passagem para quem continuar este trabalho. Resume o que foi decidido, o que foi medido, o que
 existe no código e o que falta, em ordem. O plano completo da fase está em `docs/plano-render-real.md`
@@ -36,7 +36,11 @@ threads no PC, e não conhecia Unity nem Blender antes deste trabalho.
 | 05/11 | Manter o Unity ao vivo no cluster, sem GPU, sem `nodeSelector`, deixando o Kubernetes escolher o nó com mais recursos (decisão do Pedro). **Superada em 09/11** | Preferência dele por ter o render acontecendo de verdade na execução. Partiu da informação errada de que nenhum nó tinha GPU |
 | 09/11 | UEs, gNBs, `dash-server` e `vr-app-01` saem do `blacksabbath`, que ficou NotReady, para o `molejo`, sem remedir nada (decisão do Pedro) | Os dois nós têm a mesma especificação; a Fase 8 continua como referência |
 | **09/11** | **Unity ao vivo com GPU, pedindo `nvidia.com/gpu: 1`, sem plano B. Se der errado, o Pedro vê o que fazer** (decisão do Pedro) | No cluster, 60 fps com GPU e 7 a 7,8 fps só com CPU (medidas abaixo). O render pré-computado saiu do plano |
-| 09/11 | A conferência do render real tolera até 0,1% de quadros atrasados no servidor e descarta com qualquer reancoragem do envio (decisão do Pedro) | No segundo ensaio foram 0,016%, sem reancoragem; com a regra antiga (zero), quase toda execução de ~20 min seria descartada |
+| 09/11 | A conferência do render real tolera até 0,1% de quadros atrasados no servidor e descarta com qualquer reancoragem do envio (decisão do Pedro) | No segundo ensaio foram 0,016%, sem reancoragem; com a regra antiga (zero), quase toda execução de ~20 min seria descartada. **Corrigido em 12/11:** esses atrasos vinham das minhas leituras (ver "Os quadros atrasados eram das leituras"); a regra ficou, porque não atrapalha |
+| **12/11** | **O `vr-app-01` fica sempre no `metallica` (NVIDIA A2), com `nodeSelector`** (decisão do Pedro) | Nos ensaios, a rede ficou no SLA em todas as janelas e o Unity a 60 fps. O preço é o `m2p` ~10 ms maior que no `vanhalen`, e o SLA não olha o `m2p`. Sem o `nodeSelector`, cada build podia cair numa placa diferente |
+| 12/11 | Uso da GPU combinado com o administrador do cluster (o Pedro falou com ele) | A placa fica presa ao pod enquanto ele existir, e a fila da Fase 9 leva horas |
+| 12/11 | Quadros cortados de ~0,5% aceitos (decisão do Pedro) | O corte não muda o tráfego (os 14 pacotes saem iguais); o quadro perde só o final |
+| 12/11 | A Fase 9 tem calibração própria (`vr/calibracao_render.yaml`), escolhida pela chave `vr.calibracao` do YAML | O servidor mudou de nó, e o `net_ref` muda com o caminho; o `vr/calibracao.yaml` da Fase 8 fica intacto |
 
 ## O que foi medido (04/11/2026, PC do Pedro: RTX 4060 Ti, 12 threads, Unity 2022.3.62f3, Linux)
 
@@ -190,6 +194,39 @@ Teste no PC com o cliente recriado a cada 12 s (12 janelas, uma volta inteira, `
 Render, codificador e taxa são os mesmos: a queda dos cortados veio do conteúdo das imagens. O que no circular
 gerava quadros maiores não foi investigado. A vazão não muda com o passeio (CBR).
 
+## O terceiro ensaio e os nós com A2 (10 e 11/11/2026, imagem `fase9.2`)
+
+Mesmo testbed dos ensaios anteriores (`upf4` em 400m, 3 vídeos tocando, passeio gravado), com o `vr-app-01` fixado
+em cada nó por `nodeSelector`. Além do `vanhalen`, dois nós têm uma NVIDIA A2 (16 GB, driver 580.105, GPU operator,
+`gpu.mode=compute`): o `whitesnake` (Dell R740, Xeon Silver 4114, 20 núcleos) e o `metallica` (Dell R630, Xeon
+E5-2640 v4, 40 núcleos, PCIe gen3 x8). EGL e NVENC funcionam na A2. Só o Unity (modo autônomo, ~10 min): 60 fps nos
+dois, `render_ms` p95 de ~36 ms no `whitesnake` e ~33 ms no `metallica`, com 39–40% da placa.
+
+| Medida | `vanhalen` (RTX 4000 Ada) | `whitesnake` (A2) | `metallica` (A2) |
+| --- | --- | --- | --- |
+| Janelas analisadas | 52 | 46 | 46 |
+| `net_p95` | 2,15 a 4,97 ms (1 acima de 4,87) | 2,13 a 4,91 ms (1 acima) | 2,12 a 4,32 ms (nenhuma acima) |
+| `m2p_p95` | 36,5 a 52,0 ms | 51,4 a 65,6 ms (mediana 60,9) | 48,8 a 62,3 ms (mediana 55,8) |
+| `render_ms` p95 do Unity | ~23 ms | ~37 ms | ~33,6 ms |
+| Perda / continuidade | 0 a 0,155% / ≥ 99,65% | 0 a 0,155% / ≥ 99,66% | 0 a 0,155% / ≥ 99,67% |
+| Quadros cortados / sem pose | 0,48% / 0,27% | 0,42% / 0,36% | 0,48% / 0,34% |
+
+A rede é a mesma nos três: o `net` não depende da placa. O que muda é o `hold`, e com ele o `m2p`: a A2 leva ~10 ms
+a mais por quadro, e o `m2p` sobe de ~45 para ~56 ms no `metallica`. O SLA da VR (e o agente por SLA) não olha o
+`m2p`. Throttling no `metallica`: 2 de 5.783 períodos na `upf4` e 0 no `unity-render`. O passeio gravado levou os
+cortados de 2,9% (circular, segundo ensaio) para ~0,5% no cluster.
+
+### Os quadros atrasados eram das leituras
+
+Nos ensaios, eu lia os contadores do servidor com `kubectl exec ... python3` dentro do container `photon-server`. O
+Python que sobe para a leitura gasta CPU da cota de 300m do container, o CFS segura o container e o laço de envio
+para por até 100 ms: é isso que aparecia como `frames_late_total` e `frames_reanchored_total`, e como janelas ruins na
+mesma hora. Pelos horários do Prometheus, os contadores só subiram nos instantes das leituras; fora delas, ficaram em
+zero nos três nós. Os 0,016% do segundo ensaio, que embasaram a tolerância de 0,1% (09/11), eram esse efeito. A regra
+ficou como está, porque não atrapalha. Daqui em diante, os contadores do servidor saem do Prometheus (ServiceMonitor
+do `vr-app-01`), nunca de um `exec` no `photon-server`. Na fila, nada entra nesse container: o `fetch_prometheus.py`
+lê o Prometheus, e a conferência dos clientes pinga do UE.
+
 ## O que existe no código
 
 | Arquivo | O que faz |
@@ -206,9 +243,13 @@ gerava quadros maiores não foi investigado. A vazão não muda com o passeio (C
 | `vr/render_falso.py` | O Unity de mentira, para testar o medidor e, na etapa 3, o `photon_server` |
 | `photonpath/src/photon_client.py` (`--pose-trace`) | Cada pose leva a amostra do passeio, escolhida pelo relógio de parede, porque o exporter reinicia o cliente a cada 12 s |
 | `photonpath/src/photon_server.py` (`--render-sock`) | Repassa as poses, lê o `PPRF` e põe os bytes nos pacotes, com os carimbos da pose do quadro. Sem quadro novo por 0,5 s, volta ao sintético. Métricas `render_source`, `render_frame_age_seconds`, `frames_enc_truncated_total`, `enc_bytes_last` e `frames_pose_fallback_total` |
-| `client_scripts/vr-server-render.yaml` | O pod com `photon-server` e `unity-render`, o Service e o ServiceMonitor |
+| `client_scripts/vr-server-render.yaml` | O pod com `photon-server` e `unity-render`, sempre no `metallica`, o Service e o ServiceMonitor |
 | `scripts/build_testbeds.sh --render-real` | Sobe esse pod, põe o passeio no ConfigMap `vr-launcher` e liga o `PP_POSE_TRACE` no UE de VR |
 | `metricas_scripts/fetch_prometheus.py`, `conferir_execucao.py` | Com `vr.render: real` no YAML: grava o `render_timeseries.csv` e descarta a execução se `render_source` cair a 0, mais de 0,1% dos quadros atrasarem no servidor, o envio for reancorado ou mais de 5% dos quadros saírem sem a pose da sessão |
+| Chave `vr.calibracao` do YAML | O arquivo do SLA e dos pisos da VR (padrão: `vr/calibracao.yaml`). Leem a chave o leiloeiro, os agentes da fatia e o estrategista (`spade_agents/`) e, pelo `config.yaml` da execução, a análise (`metricas_scripts/calibracao_vr.py`) |
+| `vr/graficos_calibracao.py --yaml --descricao` | Grava a calibração em outro arquivo (o `vr/calibracao_render.yaml` da Fase 9), com o cabeçalho dizendo qual é |
+| `run_fase9.sh` e `scripts/fila_fase8.py` com `FILA_FASE=9` | A fila da Fase 9: `hvr_l0`, `hvr_l2` e `scvr_l2` com os `tests_configs/test_config_*_render.yaml`, saída em `resultados/fase9/`, estado em `resultados/fase9_fila.csv`. Confere `vr.render`, `vr.calibracao` e se o `vr-app-01` é o do render real no `metallica` |
+| `scripts/pfcp_upf.py` (`reiniciar-ue`) | Com o render real no ar, o conserto recria o UE de VR com o passeio (sem ele, o Unity não seguiria o cliente) |
 
 **O contrato PhotonPath ↔ Unity** (em `docs/plano-render-real.md`): pose repassada = `PPOS` 128 B +
 `!Q recv_ns` (porta 9300); padding da pose = `!I7f` (índice, x y z, qx qy qz qw); quadro = `!4sQQQII`
@@ -232,15 +273,11 @@ raiz do nó (`nr_periods 0`), então o throttling se lê no caminho de `/proc/se
 
 ## O que falta, em ordem
 
-1. **Olhar os quadros cortados no cluster** com o passeio gravado (2,9% no segundo ensaio, com o circular; 0,42% no
-   PC com o gravado). O corte não muda o tráfego medido (os 14 pacotes saem iguais), mas o quadro perde o final. A
-   taxa é a variável `VR_BITRATE_KBPS` do pod e muda sem recompilar.
-2. **Combinar o uso da GPU com quem administra o cluster** antes das execuções longas: a placa fica exclusiva
-   do pod enquanto ele existir.
-3. **Etapas 6 e 7** como no plano: `net_ref` e pisos com o servidor no nó de GPU e as execuções de validação
-   (5 × `hvr_l2`, 5 × `hvr_l0`), com YAMLs novos que tenham `vr.render: real`.
-4. **Atualizar `docs/plano-render-real.md`** com as decisões de 09/11 e as medidas desta passagem (ele ainda
-   cita o `blacksabbath` e um `nodeSelector` no nó de GPU).
+1. **Etapa 6** (em andamento em 12/11): `net_ref` e conferência dos pisos com o servidor no `metallica`, gravados
+   no `vr/calibracao_render.yaml`.
+2. **Etapa 7**: 5 ciclos da fila da Fase 9 (`./run_fase9.sh --ciclos 5`: 5 × `hvr_l0`, 5 × `hvr_l2` e
+   5 × `scvr_l2`) e a comparação com a Fase 8.
+3. **`docs/render-real.md`** com o resultado, e o `docs/plano-render-real.md` atualizado.
 
 Para regravar o passeio: `unity/README.md`, etapa A, item 6. O CSV vai para `Assets/StreamingAssets/passeio.csv`
 e `vr/passeio.csv`; depois, recompilar o player (a lista de cenas do build está vazia: o Unity compila a cena
