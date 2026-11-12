@@ -2,7 +2,17 @@
 
 **Pergunta:** o resultado do leilão se mantém quando o servidor de VR deixa de ser um gerador sintético e passa a renderizar o modelo 3D do projeto, com um usuário simulado andando por ele?
 
-**Estado:** plano, nada construído ainda (03/11/2026). Entra depois da Fase 8, como fase própria.
+**Estado:** plano de 03/11/2026. Em 12/11/2026, as etapas 0 a 5 estão feitas e a 6 e a 7 em andamento; o estado, as medidas
+e as decisões estão em `docs/passagem-render-real.md`. O que mudou em relação a este plano:
+
+- O servidor fica sempre no `metallica` (NVIDIA A2), com `nodeSelector` (decisão do Pedro, 12/11), e os UEs no `molejo`
+  (o `blacksabbath` ficou NotReady em 09/11). O `vanhalen` (3 RTX 4000 Ada) e o `whitesnake` (A2) também foram testados.
+- Render e codificação levam ~33 ms na A2 (~23 ms na RTX 4000 Ada), não ~8 ms. O quadro sai com a pose com que foi
+  renderizado, então a diferença fica no `hold` (`m2p_p95` de ~50 a 62 ms) e o `net` não muda. Com o envio sem
+  interferência, `frames_late_total` fica em 0; a conferência tolera 0,1% (decisão do Pedro, 09/11).
+- O passeio foi gravado no Editor (2 min 16 s a 50 Hz) e a imagem do render é pública (`pedroevaldt/vr-render:fase9.2`).
+- A calibração da Fase 9 vai no `vr/calibracao_render.yaml`, escolhido pela chave `vr.calibracao` do YAML.
+- A validação tem fila própria (`run_fase9.sh`) e roda as três combinações: `hvr_l0`, `hvr_l2` e `scvr_l2`.
 
 ## Decisões já tomadas
 
@@ -18,7 +28,7 @@
 ## Arquitetura
 
 ```
-ue-vr-07 (blacksabbath)                            vr-app-01 (nó com GPU)
+ue-vr-07 (molejo)                                  vr-app-01 (metallica, A2)
 +------------------------------+                    +------------------------------------------+
 | gnb | ue | vr-client         |   poses PPOS       | photon-server (python:3.12-slim)          |
 |   vr_exporter.py (igual)     | -----------------> |   rx_loop: guarda a pose e a repassa  --+ |
@@ -175,7 +185,7 @@ ffmpeg -f rawvideo -pix_fmt rgba -s 1280x720 -r 60 -i - \
 
 ### Etapa 7: a validação (2 a 3 dias de fila)
 
-Um subconjunto da Fase 8, com o servidor de render real: 5 execuções de `hvr_l2` e 5 de `hvr_l0`, que são as combinações que mais contrastam, pela mesma fila (`run_fase8.sh` com os YAMLs apontando para `resultados/fase9/` e para o `calibracao_render.yaml`). Se der tempo, 5 de `scvr_l2`.
+Um subconjunto da Fase 8, com o servidor de render real: 5 execuções de `hvr_l2` e 5 de `hvr_l0`, que são as combinações que mais contrastam, pela mesma fila (`run_fase8.sh` com os YAMLs apontando para `resultados/fase9/` e para o `calibracao_render.yaml`). Se der tempo, 5 de `scvr_l2`. (Feito como `run_fase9.sh`, com as três combinações.)
 
 A comparação com a Fase 8, por combinação: % de janelas no SLA, rodadas vencidas pela VR, CPU e banda máximas da VR, bitrate dos três vídeos, quedas de PFCP. A pergunta é só uma: as curvas ficam dentro da variação entre execuções da Fase 8? Se sim, o gerador sintético era uma aproximação fiel, e as 150 execuções ganham força. Se não, a diferença é o resultado, e tem de ser explicada (o candidato óbvio é o `hold` maior entrando em alguma decisão).
 
