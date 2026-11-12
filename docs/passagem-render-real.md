@@ -227,6 +227,33 @@ ficou como está, porque não atrapalha. Daqui em diante, os contadores do servi
 do `vr-app-01`), nunca de um `exec` no `photon-server`. Na fila, nada entra nesse container: o `fetch_prometheus.py`
 lê o Prometheus, e a conferência dos clientes pinga do UE.
 
+## A calibração no metallica (etapa 6, 12/11/2026)
+
+Calibração inteira, não só a conferência do plano, com o `vr/calibrar.py` e o `vr/graficos_calibracao.py` das Fases 3
+e 4: o testbed do `build_testbeds.sh --render-real`, leilão desligado, passeio no cliente e 5 repetições de 9 janelas por
+ponto. CSVs, figuras e `LEIAME.md` em `metricas_scripts/resultados/calibracao_render/` (fora do git). Resultado no
+`vr/calibracao_render.yaml`:
+
+| | Fase 8 (`calibracao.yaml`) | Fase 9 (`calibracao_render.yaml`) |
+| --- | --- | --- |
+| `net_ref` | 1,87 ms | 1,92 ms |
+| Limite do `net_p95` | 4,87 ms | 4,92 ms |
+| Banda: corte | entre 8,5 e 9 Mbps | entre 8,5 (0%) e 9 Mbps (100%) |
+| CPU sem vídeo | 0,2 passa | 0,15 (0%, `net` ~31 ms) e 0,2 (100%) |
+| CPU com os 3 vídeos | 0,25 a 0,45: ~91% (teto) | 0,2: 75,6%; 0,25 a 0,4: 100% |
+| Pisos (CPU / banda / CPU sem vídeo) | 0,28 / 9,9 / 0,22 | 0,28 / 9,9 / 0,22 |
+
+- O salto a mais até o `metallica` custa 0,05 ms no `net_ref`, e os pisos não mudam: a Fase 9 é comparável com a 8.
+- **O teto de ~91% com vídeo sumiu.** Na Fase 4, o `vr-app-01` dividia o nó com os 3 Chromes e os UERANSIM, e o `net`
+  passava do limite de vez em quando mesmo com CPU de sobra ("o resto fora das cotas", `docs/coleta-vr.md`). Com o
+  servidor no `metallica`, de 0,25 núcleo para cima, as 135 janelas ficaram no SLA, com `net_p95` de ~2,3 a 2,5 ms. É
+  o teste "mover o `vr-app-01` para um nó sem UEs", anotado no plano, feito de tabela. O nó dos UEs também mudou desde
+  a Fase 4 (`blacksabbath` -> `molejo`), então as duas causas não se separam. Na validação, isso puxa o SLA da VR
+  para cima independente do render.
+- Com banda folgada, o passeio dá `m2p_p95` mediano de ~56 ms (máximo 62), igual ao do terceiro ensaio.
+- Um tropeço do roteiro, não da VR: a série de CPU começou 16 s depois do fim da de banda e o `calibrar.py` recusou
+  a janela da retomada (`health=0`). Basta esperar duas janelas boas entre as séries.
+
 ## O que existe no código
 
 | Arquivo | O que faz |
@@ -273,8 +300,7 @@ raiz do nó (`nr_periods 0`), então o throttling se lê no caminho de `/proc/se
 
 ## O que falta, em ordem
 
-1. **Etapa 6** (em andamento em 12/11): `net_ref` e conferência dos pisos com o servidor no `metallica`, gravados
-   no `vr/calibracao_render.yaml`.
+1. ~~**Etapa 6**~~: feita em 12/11 (seção "A calibração no metallica").
 2. **Etapa 7**: 5 ciclos da fila da Fase 9 (`./run_fase9.sh --ciclos 5`: 5 × `hvr_l0`, 5 × `hvr_l2` e
    5 × `scvr_l2`) e a comparação com a Fase 8.
 3. **`docs/render-real.md`** com o resultado, e o `docs/plano-render-real.md` atualizado.
