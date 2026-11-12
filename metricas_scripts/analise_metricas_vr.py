@@ -34,10 +34,10 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-import yaml
+
+import calibracao_vr
 
 NAMESPACE = "pfsevaldt"
-CALIBRACAO = Path(__file__).resolve().parent.parent / "vr" / "calibracao.yaml"
 LOG = "vr_log.txt"
 RELOGIO = "vr_relogio.txt"
 SAIDA = "qoe_vr_timeseries.csv"
@@ -187,8 +187,7 @@ def main():
     pasta = Path(args.pasta)
 
     inicio, fim = ler_execucao(pasta, args.inicio)
-    with open(CALIBRACAO) as f:
-        sla = yaml.safe_load(f)["sla"]
+    sla = calibracao_vr.ler(pasta)["sla"]                # o vr/calibracao.yaml ou o de vr.calibracao
     dif = diferenca_relogio(pasta, args.pod)
     inicio_pod = inicio + pd.Timedelta(seconds=dif)       # o TEST_START no relógio do pod
     texto, origem = ler_log(pasta, args.pod, inicio_pod, fim)

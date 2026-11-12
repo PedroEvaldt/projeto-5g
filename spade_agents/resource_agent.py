@@ -41,7 +41,9 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 # (the VR_LEAVE still releases what the VR had; see VRJoinLeave).
 MINIMOS = {"cpu": MINIMUM_CPU, "bw": MINIMUM_BW, "mem": MINIMUM_MEMORY}
 POOL = {"cpu": CORE_CPU_LIMIT, "bw": CORE_BW_LIMIT, "mem": CORE_MEMORY_LIMIT}
-CALIBRACAO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vr", "calibracao.yaml")
+# vr.calibracao: another calibration file (Phase 9: vr/calibracao_render.yaml, the VR server on the GPU node)
+CALIBRACAO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          (test_config.get('vr') or {}).get('calibracao', 'vr/calibracao.yaml'))
 VR_FLOOR_ON = str((test_config.get('vr') or {}).get('floor', True)).lower() in ("true", "on", "1")   # YAML reads `on` as True
 
 

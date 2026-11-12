@@ -31,7 +31,9 @@ BASE_BID = test_config['bidding']['base_bid']
 # the paper (v1.0-video): the inform changes only the base bid, the income and the budget
 INFORM_UPDATES_PRIORITY = str(test_config['bidding'].get('inform_updates_priority', False)).lower() in ("true", "on", "1")
 MONITORING_PERIOD = test_config['auction']['monitoring_period_seconds']
-CALIBRACAO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vr", "calibracao.yaml")   # SLA and floor of the VR (Phase 6)
+# SLA and floor of the VR (Phase 6); vr.calibracao: another file (Phase 9: vr/calibracao_render.yaml)
+CALIBRACAO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          (test_config.get('vr') or {}).get('calibracao', 'vr/calibracao.yaml'))
 
 HIGH_STRESS_THRESHOLD = test_config['bidding']['high_stress_threshold']
 MODERATE_STRESS_THRESHOLD = test_config['bidding']['moderate_stress_threshold']
@@ -445,7 +447,7 @@ class VRSliceAgent(SliceAgent):
 
 
 def vr_settings(slice_info):
-    """SLA and floor of the VR (vr/calibracao.yaml; the slice may override floor_cpu/floor_bw) and the SLA agent
+    """SLA and floor of the VR (vr/calibracao.yaml or vr.calibracao; the slice may override floor_cpu/floor_bw) and the SLA agent
     parameters (vr.sla_agent in the YAML; defaults in agente_vr.PARAMETROS)."""
     with open(CALIBRACAO) as f:
         calib = yaml.safe_load(f)

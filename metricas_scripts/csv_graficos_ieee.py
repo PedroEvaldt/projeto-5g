@@ -38,7 +38,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patheffects as pe
 import glob
 import os
-import yaml
+
+import calibracao_vr
 
 # ==========================================
 # CONFIGURAÇÕES GLOBAIS - PADRÃO IEEE
@@ -77,7 +78,6 @@ DISPLAY = {
 }
 
 DURACAO_TESTE_NOMINAL = 900
-CALIBRACAO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vr", "calibracao.yaml")
 
 # ==========================================
 # 1. AGREGAÇÃO (mesma lógica do csv_graficos_ieee.py, para rodar nos seus CSVs brutos)
@@ -160,10 +160,9 @@ def agregar_vr(base_dir):
     return periodos.merge(vr, on='Period', how='left'), len(arqs)
 
 
-def ler_pisos():
-    """Pisos da VR (banda em Mbps e CPU em núcleos) do vr/calibracao.yaml."""
-    with open(CALIBRACAO) as f:
-        piso = yaml.safe_load(f)['piso']
+def ler_pisos(base_dir):
+    """Pisos da VR (banda em Mbps e CPU em núcleos) do vr/calibracao.yaml, ou do vr.calibracao das execuções."""
+    piso = calibracao_vr.ler(base_dir)['piso']
     return {'BW': piso['banda_mbps'], 'CPU': piso['cpu']}
 
 
@@ -337,7 +336,7 @@ def plot_hierarchical(df, eventos, out_path='hierarchical_timeline.pdf', coluna_
     return legenda_eventos
 
 
-def plot_hvr(df, vr, eventos, out_path='hvr_timeline.pdf', coluna_unica=False):
+def plot_hvr(df, vr, eventos, pisos, out_path='hvr_timeline.pdf', coluna_unica=False):
     """Cenário com VR: banda e CPU dadas pelo leilão (com os pisos da VR tracejados), bitrate dos vídeos e
     % de janelas da VR fora do SLA. Mesmo período de 30 s e mesma marcação de eventos das outras figuras."""
     if coluna_unica:
@@ -355,7 +354,6 @@ def plot_hvr(df, vr, eventos, out_path='hvr_timeline.pdf', coluna_unica=False):
     specs = [('BW', 'BW (Mbps)' if coluna_unica else 'Allocated BW\n(Mbps)'),
              ('CPU', 'CPU (cores)' if coluna_unica else 'Allocated CPU\n(cores)'),
              ('Bitrate', 'Bitrate\n(kbps)')]
-    pisos = ler_pisos()
     largura = 1.3 if coluna_unica else 1.6
 
     with plt.rc_context(_fontctx):
@@ -423,8 +421,9 @@ if __name__ == "__main__":
         print(f"[VR] {n} execução(ões) em {args.vr}")
         df_vr = agregar_dados_cenario(args.vr)
         eventos_vr = carregar_eventos(args.vr)
-        plot_hvr(df_vr, vr, eventos_vr, out_path='hvr_timeline.pdf', coluna_unica=False)
-        plot_hvr(df_vr, vr, eventos_vr, out_path='hvr_timeline_1col.pdf', coluna_unica=True)
+        pisos = ler_pisos(args.vr)
+        plot_hvr(df_vr, vr, eventos_vr, pisos, out_path='hvr_timeline.pdf', coluna_unica=False)
+        plot_hvr(df_vr, vr, eventos_vr, pisos, out_path='hvr_timeline_1col.pdf', coluna_unica=True)
     else:
         DIR_CIDADE = "resultados/cidade_inteligente_3"
         DIR_HIER = "resultados/slices_hierarquicos"

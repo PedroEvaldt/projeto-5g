@@ -214,7 +214,7 @@ def ler_pool():
             "banda": (leilao["minimum_bw"], leilao["total_bw_pool"])}
 
 
-def escrever_yaml(caminho, csvs, com_video, net_ref, passou):
+def escrever_yaml(caminho, csvs, com_video, net_ref, passou, descricao):
     """O calibracao.yaml: o SLA por janela, os pisos e a conferência do pool, para as Fases 4 a 6.
     Com a série de CPU com vídeo, o piso de CPU sai dela, e o sem vídeo fica como referência."""
     tem_video = passou.get("cpu_video") is not None
@@ -229,10 +229,10 @@ def escrever_yaml(caminho, csvs, com_video, net_ref, passou):
 
     # (linha, comentário): o comentário fica alinhado numa coluna, para o arquivo ser lido por gente também
     linhas = [
-        ("# Calibração da VR (Fases 3 e 4): SLA e pisos da fatia de VR na upf4.", None),
+        (f"# Calibração da VR ({descricao}): SLA e pisos da fatia de VR na upf4.", None),
         (f"# Gerado por vr/graficos_calibracao.py em {datetime.now():%Y-%m-%d %H:%M}. "
          "Não editar à mão: rodar o script de novo.", None),
-        ("# Fontes (metricas_scripts/resultados/calibracao/, fora do git):", None),
+        (f"# Fontes ({os.path.relpath(os.path.dirname(os.path.abspath(csvs[0])), RAIZ)}/, fora do git):", None),
         *[(f"#   {os.path.basename(c)}", None) for c in csvs],
         *[(f"#   {os.path.basename(c)}  (com os 3 vídeos tocando)", None) for c in com_video],
         ("", None),
@@ -314,6 +314,8 @@ def main():
     ap.add_argument("csvs", nargs="+", help="CSVs do calibrar.py que valem (ver o LEIAME.md)")
     ap.add_argument("--saida", help="pasta das figuras (padrão: figuras/, na pasta do primeiro CSV)")
     ap.add_argument("--yaml", default=SAIDA_YAML, help="onde gravar o calibracao.yaml (padrão: vr/calibracao.yaml)")
+    ap.add_argument("--descricao", default="Fases 3 e 4",
+                    help="o que esta calibração mede, no cabeçalho do yaml (ex.: a Fase 9, com o render real)")
     ap.add_argument("--com-video", nargs="+", default=[], metavar="CSV",
                     help="CSVs medidos com os 3 vídeos tocando (fora do net_ref; na CPU, dão o piso)")
     args = ap.parse_args()
@@ -344,7 +346,7 @@ def main():
     if falta:
         print(f"[YAML] não gravado: falta um ponto que passe em {', '.join(falta)} (ou o CSV desse recurso)")
         return
-    escrever_yaml(args.yaml, args.csvs, args.com_video, net_ref, passou)
+    escrever_yaml(args.yaml, args.csvs, args.com_video, net_ref, passou, args.descricao)
 
 
 if __name__ == "__main__":

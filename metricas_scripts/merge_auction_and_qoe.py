@@ -19,11 +19,10 @@ import matplotlib.transforms as mtransforms
 import seaborn as sns
 import sys
 import warnings
-import yaml
 from pathlib import Path
 
-# SLA and floors of the VR (Phase 3)
-CALIBRACAO = Path(__file__).resolve().parent.parent / "vr" / "calibracao.yaml"
+import calibracao_vr
+
 VR_MARKS = ['pausa', 'retomada']
 
 # Suppress seaborn visual warnings in the terminal
@@ -297,8 +296,7 @@ class DataCorrelator:
 
     def generate_vr_graph(self, vr_df, events_df, timeline, alloc):
         """net p95 and continuity per window, % out of SLA per 30 s and, if the VR is in the auction, its CPU and BW."""
-        with open(CALIBRACAO) as f:
-            calib = yaml.safe_load(f)
+        calib = calibracao_vr.ler(self.input_dir)     # SLA and floors of the VR: vr/calibracao.yaml or vr.calibracao
         sla, floor = calib['sla'], calib['piso']
         sns.set_theme(style="whitegrid")
         colors = {'PRIORITY_CHANGE': 'red', 'TRAFFIC_PAUSE': 'purple', 'TRAFFIC_RESUME': 'green',

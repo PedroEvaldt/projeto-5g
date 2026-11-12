@@ -23,11 +23,11 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-import yaml
+
+import calibracao_vr
 
 pasta = Path(sys.argv[1] if len(sys.argv) > 1 else ".")
 deslocamento = float(sys.argv[2]) if len(sys.argv) > 2 else 10.0
-CALIBRACAO = Path(__file__).resolve().parent.parent / "vr" / "calibracao.yaml"
 
 
 def ler(nome):
@@ -143,8 +143,7 @@ if leilao is not None:
 
 if vr is not None:
     # 4. VR
-    with open(CALIBRACAO) as f:
-        sla = yaml.safe_load(f)["sla"]
+    sla = calibracao_vr.ler(pasta)["sla"]
     net_max = sla["net_ref_ms"] + sla["folga_net_ms"]
     marca = vr["Window_Type"].isin(["pausa", "retomada"])
     janelas = vr[~marca]
@@ -154,7 +153,7 @@ if vr is not None:
     if qoe is not None or leilao is not None:               # separa das seções de cima, se houver
         print()
     print("=" * 120)
-    print(f"4. VR ({', '.join(vr['Slice'].dropna().unique())}): janelas de ~12.6 s, SLA do vr/calibracao.yaml, sem deslocamento")
+    print(f"4. VR ({', '.join(vr['Slice'].dropna().unique())}): janelas de ~12.6 s, SLA do {calibracao_vr.caminho(pasta).relative_to(calibracao_vr.REPO)}, sem deslocamento")
     print("=" * 120)
     tipos = ", ".join(f"{n} {t}" for t, n in janelas["Window_Type"].value_counts().items())
     print(f"Janelas: {len(janelas)} ({tipos}); fora da conta (health=0): {len(janelas) - len(contam)}")

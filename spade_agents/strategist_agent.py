@@ -31,7 +31,9 @@ if VR_LLM not in ('artigo', 'vr'):
     raise SystemExit(f"[ERROR] vr.llm: {VR_LLM} is not valid. Use vr.llm: artigo or vr.")
 KNOWS_VR = VR_LLM == 'vr'
 LLM_SLICES = politica_llm.fatias_do_llm(config, KNOWS_VR)     # the slices the LLM sees and may change
-CALIBRACAO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vr", "calibracao.yaml")
+# vr.calibracao: another calibration file (Phase 9: vr/calibracao_render.yaml, the VR server on the GPU node)
+CALIBRACAO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          (config.get('vr') or {}).get('calibracao', 'vr/calibracao.yaml'))
 DECISIONS_CSV = config['monitoring']['csv_output_dir'] + "llm_decisoes.csv"
 
 
