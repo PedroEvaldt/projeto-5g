@@ -5,6 +5,9 @@ Fila de execuções da Fase 8: 5 combinações x 30 ciclos, intercaladas. Chamad
     ./run_fase8.sh --status        # quantas execuções válidas por combinação
     ./run_fase8.sh --seco 2        # mostra o que os próximos 2 ciclos rodariam, sem rodar nada
 
+Com FILA_FASE=9 (o run_fase9.sh), é a fila da Fase 9: 3 combinações x 5 ciclos com o render real, a saída em
+resultados/fase9/ e os arquivos de estado com fase9_ no lugar de fase8_. O resto é igual.
+
 Cada ciclo roda 1 execução de cada combinação, numa ordem sorteada com o número do ciclo como semente
 (a mesma ordem se a fila for retomada). Nome: <prefixo>_<ciclo>, ex. hvrl2_07, na pasta resultados/<combinação>/.
 
@@ -33,14 +36,16 @@ import yaml
 
 import pfcp_upf
 
+FASE = os.environ.get("FILA_FASE", "8")     # 9: o render real (run_fase9.sh)
 REPO = Path(__file__).resolve().parent.parent
 RES = REPO / "metricas_scripts" / "resultados"
-FILA = RES / "fase8_fila.csv"
-LOG = RES / "fase8_fila.log"
-REPAROS = RES / "fase8_reparos.csv"
-PARAR = RES / "fase8_parar"
+SAIDA = RES if FASE == "8" else RES / f"fase{FASE}"   # as pastas das combinações e as descartadas
+FILA = RES / f"fase{FASE}_fila.csv"
+LOG = RES / f"fase{FASE}_fila.log"
+REPAROS = RES / f"fase{FASE}_reparos.csv"
+PARAR = RES / f"fase{FASE}_parar"
 PY = str(REPO / "venv" / "bin" / "python")
-CICLOS = 30
+CICLOS = {"8": 30, "9": 5}[FASE]
 FALHAS_SEGUIDAS = 3     # tentativas que falharam em seguida (de uma execução ou de várias): para a fila
 PAUSA_S = int(os.environ.get("FASE8_PAUSA_S", 60))   # entre execuções: o XMPP solta a porta e a upf4 reassocia o PFCP depois do reset
 CAMPOS = ["ciclo", "ordem", "combinacao", "nome", "tentativa", "inicio", "fim", "status", "motivo", "commit"]
@@ -48,13 +53,24 @@ CAMPOS_REPARO = ["hora", "antes_de", "alvo", "motivo", "deu_certo", "resultado"]
 ESPERA_SAIDA_S = 5.0    # vr.espera_saida_s: a saída da VR só libera a upf4 depois disto (incidente de 02/11/2026)
 
 # combinação (= pasta em resultados/), prefixo do nome, YAML e o que o YAML tem de ter (vr.floor, vr.agent, vr.llm)
-COMBINACOES = [
-    ("hvr_l0", "hvrl0", "tests_configs/test_config_hvr_l0.yaml", (False, "utilizacao", "artigo")),
-    ("hvr_l1", "hvrl1", "tests_configs/test_config_hvr.yaml", (True, "utilizacao", "artigo")),
-    ("hvr_l2", "hvrl2", "tests_configs/test_config_hvr_l2.yaml", (True, "sla", "artigo")),
-    ("scvr_l2", "scvrl2", "tests_configs/test_config_scvr_l2.yaml", (True, "sla", "artigo")),
-    ("scvr_l3", "scvrl3", "tests_configs/test_config_scvr_l3.yaml", (True, "sla", "vr")),
-]
+COMBINACOES = {
+    "8": [
+        ("hvr_l0", "hvrl0", "tests_configs/test_config_hvr_l0.yaml", (False, "utilizacao", "artigo")),
+        ("hvr_l1", "hvrl1", "tests_configs/test_config_hvr.yaml", (True, "utilizacao", "artigo")),
+        ("hvr_l2", "hvrl2", "tests_configs/test_config_hvr_l2.yaml", (True, "sla", "artigo")),
+        ("scvr_l2", "scvrl2", "tests_configs/test_config_scvr_l2.yaml", (True, "sla", "artigo")),
+        ("scvr_l3", "scvrl3", "tests_configs/test_config_scvr_l3.yaml", (True, "sla", "vr")),
+    ],
+    # Fase 9: o subconjunto da Fase 8 com o render real (docs/plano-render-real.md, etapa 7). O "r" no prefixo não
+    # deixa um nome repetir o da Fase 8 (o run_experiment_tmux.sh grava o tests_configs/_run_<nome>.yaml)
+    "9": [
+        ("hvr_l0", "hvrl0r", "tests_configs/test_config_hvr_l0_render.yaml", (False, "utilizacao", "artigo")),
+        ("hvr_l2", "hvrl2r", "tests_configs/test_config_hvr_l2_render.yaml", (True, "sla", "artigo")),
+        ("scvr_l2", "scvrl2r", "tests_configs/test_config_scvr_l2_render.yaml", (True, "sla", "artigo")),
+    ],
+}[FASE]
+CALIBRACAO_RENDER = "vr/calibracao_render.yaml"   # Fase 9: o SLA e os pisos medidos com o servidor no nó de GPU
+NO_RENDER = "metallica"                          # Fase 9: o nó do vr-app-01 (decisão do Pedro, 12/11/2026)
 DRONE_PRIORIDADE = 5.0  # SC-VR (decisão da Fase 7)
 
 
@@ -112,14 +128,29 @@ def conferir_preparo():
         if tem != (piso, agente, llm):
             erros.append(f"{arq}: vr.floor/agent/llm = {tem}, a {comb} pede {(piso, agente, llm)}")
         if float(v.get("espera_saida_s", 0)) != ESPERA_SAIDA_S:
-            erros.append(f"{arq}: vr.espera_saida_s = {v.get('espera_saida_s', 0)}, a Fase 8 usa {ESPERA_SAIDA_S:g}")
+            erros.append(f"{arq}: vr.espera_saida_s = {v.get('espera_saida_s', 0)}, a Fase {FASE} usa {ESPERA_SAIDA_S:g}")
         if (c.get("bidding") or {}).get("inform_updates_priority", False):
-            erros.append(f"{arq}: bidding.inform_updates_priority tem de ficar false na Fase 8")
-        if f"/resultados/{comb}/" not in c["monitoring"]["csv_output_dir"]:
-            erros.append(f"{arq}: csv_output_dir não aponta para resultados/{comb}/")
+            erros.append(f"{arq}: bidding.inform_updates_priority tem de ficar false na Fase {FASE}")
+        destino = f"{SAIDA.relative_to(RES.parent)}/{comb}/"
+        if f"/{destino}" not in c["monitoring"]["csv_output_dir"]:
+            erros.append(f"{arq}: csv_output_dir não aponta para {destino}")
+        if FASE == "9" and (v.get("render") != "real" or v.get("calibracao") != CALIBRACAO_RENDER):
+            erros.append(f"{arq}: a Fase 9 pede vr.render: real e vr.calibracao: {CALIBRACAO_RENDER}")
         for nome, s in c["slices"].items():
             if comb.startswith("scvr") and s.get("tipo") == "vr" and float(s["initial_priority"]) != DRONE_PRIORIDADE:
-                erros.append(f"{arq}: {nome} com prioridade inicial {s['initial_priority']}, a Fase 8 usa {DRONE_PRIORIDADE}")
+                erros.append(f"{arq}: {nome} com prioridade inicial {s['initial_priority']}, a Fase {FASE} usa {DRONE_PRIORIDADE}")
+    if FASE == "9":
+        if not (REPO / CALIBRACAO_RENDER).exists():
+            erros.append(f"falta o {CALIBRACAO_RENDER} (a etapa 6: vr/calibrar.py e vr/graficos_calibracao.py)")
+        # O testbed tem de ter subido com o build_testbeds.sh --render-real: o Unity no pod e o pod no nó da GPU
+        r = subprocess.run(["kubectl", "get", "deployment", "vr-app-01", "-n", "pfsevaldt", "-o",
+                            "jsonpath={.spec.template.spec.containers[*].name}|"
+                            "{.spec.template.spec.nodeSelector.kubernetes\\.io/hostname}"],
+                           capture_output=True, text=True)
+        nomes, _, no = r.stdout.partition("|")
+        if "unity-render" not in nomes.split() or no != NO_RENDER:
+            erros.append(f"o vr-app-01 não é o do render real no {NO_RENDER} (containers: {nomes or '?'}, nó: "
+                         f"{no or '?'}): suba o testbed com scripts/build_testbeds.sh --render-real")
     # Os clientes de vídeo com RollingUpdate ficam com o IMSI duplicado no restart, e o AMF às vezes perde o UE novo
     videos = sorted({s["client_pod"] for _, _, arq, _ in COMBINACOES
                      for s in yaml.safe_load(open(REPO / arq))["slices"].values() if s.get("tipo", "video") != "vr"})
@@ -153,7 +184,7 @@ def motivo_da_falha(pasta, rc):
 def descartar(pasta, comb, nome, tentativa):
     if not pasta.exists():
         return
-    destino = RES / "descartadas" / comb / f"{nome}-tentativa{tentativa}"
+    destino = SAIDA / "descartadas" / comb / f"{nome}-tentativa{tentativa}"
     destino.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(pasta), str(destino))
     log(f"   pasta movida para {destino.relative_to(RES)}")
@@ -211,7 +242,7 @@ def rodar(ciclo, ordem, comb, cod):
     """Uma tentativa de uma execução. Devolve True se ela ficou válida."""
     nome_comb, prefixo, arq, _ = comb
     nome = f"{prefixo}_{ciclo:02d}"
-    pasta = RES / nome_comb / nome
+    pasta = SAIDA / nome_comb / nome
     tentativa = sum(1 for l in ler_fila() if l["nome"] == nome) + 1     # numera as pastas em descartadas/
     if pasta.exists() and any(pasta.iterdir()):
         # Sobra de uma fila interrompida no meio da execução: registrada como tentativa perdida
@@ -221,7 +252,7 @@ def rodar(ciclo, ordem, comb, cod):
                     motivo="interrompida (pasta encontrada ao retomar a fila)", commit=cod))
         tentativa += 1
     inicio = f"{datetime.now():%Y-%m-%d %H:%M:%S}"
-    log(f"=== ciclo {ciclo}, {ordem}/5: {nome} ({arq}), tentativa {tentativa}")
+    log(f"=== ciclo {ciclo}, {ordem}/{len(COMBINACOES)}: {nome} ({arq}), tentativa {tentativa}")
     with open(LOG, "a") as f:
         rc = subprocess.run(["./run_experiment_tmux.sh", arq, nome, "--completo"], cwd=REPO,
                             stdout=f, stderr=subprocess.STDOUT).returncode
@@ -254,40 +285,40 @@ def fila(n_ciclos):
     falta = pendentes(ler_fila())
     ciclos = sorted({c for c, _, _ in falta})[:n_ciclos]
     if not ciclos:
-        log("Fase 8 completa: nada a rodar.")
+        log(f"Fase {FASE} completa: nada a rodar.")
         return
     log(f"Fila começou: ciclos {ciclos[0]} a {ciclos[-1]} ({sum(1 for c, _, _ in falta if c in ciclos)} execuções), código {cod}")
     seguidas = 0
     for ciclo, ordem, comb in [p for p in falta if p[0] in ciclos]:
         if PARAR.exists():
-            log(f"Parada pedida ({PARAR.name}); a fila termina aqui. Retome com ./run_fase8.sh --ciclos N")
+            log(f"Parada pedida ({PARAR.name}); a fila termina aqui. Retome com ./run_fase{FASE}.sh --ciclos N")
             PARAR.unlink()
             return
         # Repete até valer; 3 falhas seguidas (desta execução ou de várias) param a fila
         while True:
             if not consertar_testbed(comb[2], f"{comb[1]}_{ciclo:02d}"):
                 log("[PAROU] um conserto automático falhou: recupere à mão (docs/experimentos.md) e retome com "
-                    "./run_fase8.sh --ciclos N")
+                    f"./run_fase{FASE}.sh --ciclos N")
                 return
             if rodar(ciclo, ordem, comb, cod):
                 break
             seguidas += 1
             if seguidas >= FALHAS_SEGUIDAS:
                 log(f"[PAROU] {FALHAS_SEGUIDAS} falhas seguidas: o testbed deve estar com problema. Veja o "
-                    f"{FILA.name} e as pastas em descartadas/; depois, retome com ./run_fase8.sh --ciclos N")
+                    f"{FILA.name} e as pastas em descartadas/; depois, retome com ./run_fase{FASE}.sh --ciclos N")
                 return
             log(f"   pausa de {PAUSA_S} s antes de tentar de novo")
             time.sleep(PAUSA_S)
         seguidas = 0
         log(f"   pausa de {PAUSA_S} s")
         time.sleep(PAUSA_S)
-    log(f"Fila terminou: ciclos {ciclos[0]} a {ciclos[-1]}. ./run_fase8.sh --status para o resumo")
+    log(f"Fila terminou: ciclos {ciclos[0]} a {ciclos[-1]}. ./run_fase{FASE}.sh --status para o resumo")
 
 
 def status():
     linhas = ler_fila()
     feitas = validas(linhas)
-    print(f"Fase 8: {len(feitas)} de {CICLOS * len(COMBINACOES)} execuções válidas\n")
+    print(f"Fase {FASE}: {len(feitas)} de {CICLOS * len(COMBINACOES)} execuções válidas\n")
     print(f"{'combinação':<10} {'válidas':>8} {'com aviso':>10} {'tentativas que falharam':>24}")
     for comb, prefixo, _, _ in COMBINACOES:
         d = [l for l in linhas if l["combinacao"] == comb]
@@ -315,8 +346,8 @@ def status():
         u = linhas[-1]
         print(f"\nÚltima tentativa: {u['nome']} ({u['status']}) às {u['fim']}")
     sessoes = subprocess.run(["tmux", "ls"], capture_output=True, text=True).stdout.splitlines()
-    rodando = [s.split(":")[0] for s in sessoes if s.startswith(("fase8:", "exp_"))]
-    print("Agora: " + (", ".join(rodando) + " (tmux attach -t fase8)" if rodando else "nenhuma fila rodando"))
+    rodando = [s.split(":")[0] for s in sessoes if s.startswith((f"fase{FASE}:", "exp_"))]
+    print("Agora: " + (", ".join(rodando) + f" (tmux attach -t fase{FASE})" if rodando else "nenhuma fila rodando"))
 
 
 def seco(n_ciclos):
@@ -326,7 +357,8 @@ def seco(n_ciclos):
         print(f"[ERRO, a fila não começaria] {erro}")
     for c, i, comb in falta:
         if c in ciclos:
-            print(f"ciclo {c:>2}, {i}/5: {comb[1]}_{c:02d}  ({comb[2]})  -> resultados/{comb[0]}/")
+            print(f"ciclo {c:>2}, {i}/{len(COMBINACOES)}: {comb[1]}_{c:02d}  ({comb[2]})  -> "
+                  f"{SAIDA.relative_to(RES.parent)}/{comb[0]}/")
     n = sum(1 for c, _, _ in falta if c in ciclos)
     print(f"\n{n} execuções, ~{n * 19 / 60:.1f} h")
 
