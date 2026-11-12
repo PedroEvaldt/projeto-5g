@@ -6,7 +6,9 @@ Fila de execuções da Fase 8: 5 combinações x 30 ciclos, intercaladas. Chamad
     ./run_fase8.sh --seco 2        # mostra o que os próximos 2 ciclos rodariam, sem rodar nada
 
 Com FILA_FASE=9 (o run_fase9.sh), é a fila da Fase 9: 3 combinações x 5 ciclos com o render real, a saída em
-resultados/fase9/ e os arquivos de estado com fase9_ no lugar de fase8_. O resto é igual.
+resultados/fase9/ e os arquivos de estado com fase9_ no lugar de fase8_. O resto é igual. Com FILA_FASE=9s, é o
+controle da Fase 9: a hvr_l2 com o servidor sintético da Fase 8 no mesmo nó (scripts/trocar_servidor_vr.sh sintetico),
+5 ciclos, saída em resultados/fase9s/.
 
 Cada ciclo roda 1 execução de cada combinação, numa ordem sorteada com o número do ciclo como semente
 (a mesma ordem se a fila for retomada). Nome: <prefixo>_<ciclo>, ex. hvrl2_07, na pasta resultados/<combinação>/.
@@ -36,7 +38,7 @@ import yaml
 
 import pfcp_upf
 
-FASE = os.environ.get("FILA_FASE", "8")     # 9: o render real (run_fase9.sh)
+FASE = os.environ.get("FILA_FASE", "8")     # 9: o render real (run_fase9.sh); 9s: o controle sintético dela
 REPO = Path(__file__).resolve().parent.parent
 RES = REPO / "metricas_scripts" / "resultados"
 SAIDA = RES if FASE == "8" else RES / f"fase{FASE}"   # as pastas das combinações e as descartadas
@@ -44,8 +46,9 @@ FILA = RES / f"fase{FASE}_fila.csv"
 LOG = RES / f"fase{FASE}_fila.log"
 REPAROS = RES / f"fase{FASE}_reparos.csv"
 PARAR = RES / f"fase{FASE}_parar"
+RUN = "FILA_FASE=9s ./run_fase9.sh" if FASE == "9s" else f"./run_fase{FASE}.sh"   # para as mensagens
 PY = str(REPO / "venv" / "bin" / "python")
-CICLOS = {"8": 30, "9": 5}[FASE]
+CICLOS = {"8": 30, "9": 5, "9s": 5}[FASE]
 FALHAS_SEGUIDAS = 3     # tentativas que falharam em seguida (de uma execução ou de várias): para a fila
 PAUSA_S = int(os.environ.get("FASE8_PAUSA_S", 60))   # entre execuções: o XMPP solta a porta e a upf4 reassocia o PFCP depois do reset
 CAMPOS = ["ciclo", "ordem", "combinacao", "nome", "tentativa", "inicio", "fim", "status", "motivo", "commit"]
@@ -68,9 +71,14 @@ COMBINACOES = {
         ("hvr_l2", "hvrl2r", "tests_configs/test_config_hvr_l2_render.yaml", (True, "sla", "artigo")),
         ("scvr_l2", "scvrl2r", "tests_configs/test_config_scvr_l2_render.yaml", (True, "sla", "artigo")),
     ],
+    # Controle da Fase 9: a hvr_l2 caiu fora da faixa da Fase 8 com o render real; o mesmo testbed com o servidor
+    # sintético separa o render da topologia (servidor no metallica, UEs no molejo). Prefixo "s" pelo mesmo motivo do "r"
+    "9s": [
+        ("hvr_l2", "hvrl2s", "tests_configs/test_config_hvr_l2_sintetico.yaml", (True, "sla", "artigo")),
+    ],
 }[FASE]
-CALIBRACAO_RENDER = "vr/calibracao_render.yaml"   # Fase 9: o SLA e os pisos medidos com o servidor no nó de GPU
-NO_RENDER = "metallica"                          # Fase 9: o nó do vr-app-01 (decisão do Pedro, 12/11/2026)
+CALIBRACAO_RENDER = "vr/calibracao_render.yaml"   # Fases 9 e 9s: o SLA e os pisos medidos com o servidor no nó de GPU
+NO_RENDER = "metallica"                          # Fases 9 e 9s: o nó do vr-app-01 (decisão do Pedro, 12/11/2026)
 DRONE_PRIORIDADE = 5.0  # SC-VR (decisão da Fase 7)
 
 
@@ -134,23 +142,27 @@ def conferir_preparo():
         destino = f"{SAIDA.relative_to(RES.parent)}/{comb}/"
         if f"/{destino}" not in c["monitoring"]["csv_output_dir"]:
             erros.append(f"{arq}: csv_output_dir não aponta para {destino}")
-        if FASE == "9" and (v.get("render") != "real" or v.get("calibracao") != CALIBRACAO_RENDER):
-            erros.append(f"{arq}: a Fase 9 pede vr.render: real e vr.calibracao: {CALIBRACAO_RENDER}")
+        if (v.get("render") == "real") != (FASE == "9"):
+            erros.append(f"{arq}: a Fase {FASE} pede " + ("vr.render: real" if FASE == "9" else "o servidor sintético (sem vr.render: real)"))
+        if FASE in ("9", "9s") and v.get("calibracao") != CALIBRACAO_RENDER:
+            erros.append(f"{arq}: a Fase {FASE} pede vr.calibracao: {CALIBRACAO_RENDER}")
         for nome, s in c["slices"].items():
             if comb.startswith("scvr") and s.get("tipo") == "vr" and float(s["initial_priority"]) != DRONE_PRIORIDADE:
                 erros.append(f"{arq}: {nome} com prioridade inicial {s['initial_priority']}, a Fase {FASE} usa {DRONE_PRIORIDADE}")
-    if FASE == "9":
+    if FASE in ("9", "9s"):
         if not (REPO / CALIBRACAO_RENDER).exists():
             erros.append(f"falta o {CALIBRACAO_RENDER} (a etapa 6: vr/calibrar.py e vr/graficos_calibracao.py)")
-        # O testbed tem de ter subido com o build_testbeds.sh --render-real: o Unity no pod e o pod no nó da GPU
+        # O testbed tem de ter subido com o build_testbeds.sh --render-real e o pod no nó da GPU: na 9 com o Unity,
+        # na 9s sem ele (scripts/trocar_servidor_vr.sh sintetico)
         r = subprocess.run(["kubectl", "get", "deployment", "vr-app-01", "-n", "pfsevaldt", "-o",
                             "jsonpath={.spec.template.spec.containers[*].name}|"
                             "{.spec.template.spec.nodeSelector.kubernetes\\.io/hostname}"],
                            capture_output=True, text=True)
         nomes, _, no = r.stdout.partition("|")
-        if "unity-render" not in nomes.split() or no != NO_RENDER:
-            erros.append(f"o vr-app-01 não é o do render real no {NO_RENDER} (containers: {nomes or '?'}, nó: "
-                         f"{no or '?'}): suba o testbed com scripts/build_testbeds.sh --render-real")
+        if ("unity-render" in nomes.split()) != (FASE == "9") or no != NO_RENDER:
+            pede, como = (("o do render real", "suba o testbed com scripts/build_testbeds.sh --render-real") if FASE == "9"
+                          else ("o sintético", "scripts/trocar_servidor_vr.sh sintetico"))
+            erros.append(f"o vr-app-01 não é {pede} no {NO_RENDER} (containers: {nomes or '?'}, nó: {no or '?'}): {como}")
     # Os clientes de vídeo com RollingUpdate ficam com o IMSI duplicado no restart, e o AMF às vezes perde o UE novo
     videos = sorted({s["client_pod"] for _, _, arq, _ in COMBINACOES
                      for s in yaml.safe_load(open(REPO / arq))["slices"].values() if s.get("tipo", "video") != "vr"})
@@ -291,28 +303,28 @@ def fila(n_ciclos):
     seguidas = 0
     for ciclo, ordem, comb in [p for p in falta if p[0] in ciclos]:
         if PARAR.exists():
-            log(f"Parada pedida ({PARAR.name}); a fila termina aqui. Retome com ./run_fase{FASE}.sh --ciclos N")
+            log(f"Parada pedida ({PARAR.name}); a fila termina aqui. Retome com {RUN} --ciclos N")
             PARAR.unlink()
             return
         # Repete até valer; 3 falhas seguidas (desta execução ou de várias) param a fila
         while True:
             if not consertar_testbed(comb[2], f"{comb[1]}_{ciclo:02d}"):
                 log("[PAROU] um conserto automático falhou: recupere à mão (docs/experimentos.md) e retome com "
-                    f"./run_fase{FASE}.sh --ciclos N")
+                    f"{RUN} --ciclos N")
                 return
             if rodar(ciclo, ordem, comb, cod):
                 break
             seguidas += 1
             if seguidas >= FALHAS_SEGUIDAS:
                 log(f"[PAROU] {FALHAS_SEGUIDAS} falhas seguidas: o testbed deve estar com problema. Veja o "
-                    f"{FILA.name} e as pastas em descartadas/; depois, retome com ./run_fase{FASE}.sh --ciclos N")
+                    f"{FILA.name} e as pastas em descartadas/; depois, retome com {RUN} --ciclos N")
                 return
             log(f"   pausa de {PAUSA_S} s antes de tentar de novo")
             time.sleep(PAUSA_S)
         seguidas = 0
         log(f"   pausa de {PAUSA_S} s")
         time.sleep(PAUSA_S)
-    log(f"Fila terminou: ciclos {ciclos[0]} a {ciclos[-1]}. ./run_fase{FASE}.sh --status para o resumo")
+    log(f"Fila terminou: ciclos {ciclos[0]} a {ciclos[-1]}. {RUN} --status para o resumo")
 
 
 def status():
