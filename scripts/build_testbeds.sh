@@ -137,7 +137,7 @@ main() {
         # delete + create: o kubectl apply guarda o conteúdo numa anotação de até 256 kB, e o passeio pode passar disso
         kubectl delete configmap vr-launcher -n "$NS" --ignore-not-found
         kubectl create configmap vr-launcher -n "$NS" --from-file="$PROJECT_DIR/vr/pp_launcher.py" --from-file="$PROJECT_DIR/vr/passeio.csv"
-        kubectl apply -f "$PROJECT_DIR/client_scripts/vr-server-render.yaml"   # PhotonPath + Unity (vr-app-01), num nó com GPU livre
+        kubectl apply -f "$PROJECT_DIR/client_scripts/vr-server-render.yaml"   # PhotonPath + Unity (vr-app-01), no metallica (GPU A2)
         export VR_POSE_TRACE=/opt/vr/passeio.csv                               # o UE de VR manda as poses do passeio
       else
         kubectl apply -f "$PROJECT_DIR/client_scripts/vr-server.yaml"   # servidor de VR (vr-app-01), no nó molejo

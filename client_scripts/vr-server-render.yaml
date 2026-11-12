@@ -23,7 +23,9 @@ spec:
       labels:
         app: vr-app-01
     spec:
-      # Sem nodeSelector: pedir nvidia.com/gpu já limita o cluster aos nós com placa livre.
+      # Sempre no metallica (NVIDIA A2), decisão do Pedro de 12/11/2026: em outra placa, o render e o m2p mudam.
+      nodeSelector:
+        kubernetes.io/hostname: metallica
       runtimeClassName: nvidia
       volumes:
       - name: photonpath
