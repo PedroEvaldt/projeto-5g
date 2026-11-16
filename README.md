@@ -70,6 +70,7 @@ Todas as configurações saem do mesmo código; muda só o YAML. Sem a VR (`--se
 | `metricas_scripts/` | eventos do teste, coleta, verificador de cada execução (`conferir_execucao.py`) e análise (`analise_fase8.py`); os resultados ficam em `resultados/`, fora do git |
 | `tests_configs/` | um YAML por cenário e configuração (`test_config_hvr_l0.yaml`, …) |
 | `5Gcore_files/` | o core Open5GS e o registro dos assinantes |
+| `unity/` | o render real da Fase 9: os scripts C# do Unity, o Dockerfile e o passo a passo |
 | `photonpath/` | cópia do PhotonPath de Carlos Eduardo Menin (MIT; origem e alterações em `photonpath/ORIGEM.txt`) |
 | `docs/` | uma nota por fase, com o que foi feito, os resultados e as decisões |
 
@@ -85,6 +86,7 @@ Todas as configurações saem do mesmo código; muda só o YAML. Sem a VR (`--se
 | 6 | [`agente-vr.md`](docs/agente-vr.md) | o agente da VR por SLA |
 | 7 | [`llm-vr.md`](docs/llm-vr.md) | o LLM com a VR (L2 × L3) |
 | 8 | [`experimentos.md`](docs/experimentos.md) | as 150 execuções: protocolo, regras de descarte e resultados |
+| 9 | [`render-real.md`](docs/render-real.md) | o servidor de VR com o modelo 3D renderizado de verdade (Unity com GPU): para a rede e o leilão, igual ao sintético; só o `m2p` muda (~13 → ~59 ms) |
 
 ## Como rodar
 
