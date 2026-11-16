@@ -2,8 +2,8 @@
 
 **Pergunta:** o resultado do leilão se mantém quando o servidor de VR deixa de ser um gerador sintético e passa a renderizar o modelo 3D do projeto, com um usuário simulado andando por ele?
 
-**Estado:** plano de 03/11/2026. Em 12/11/2026, as etapas 0 a 5 estão feitas e a 6 e a 7 em andamento; o estado, as medidas
-e as decisões estão em `docs/passagem-render-real.md`. O que mudou em relação a este plano:
+**Estado:** plano de 03/11/2026. Em 16/11/2026, as etapas 0 a 7 estão feitas, e o resultado está em `docs/render-real.md`.
+O estado, as medidas e as decisões estão em `docs/passagem-render-real.md`. O que mudou em relação a este plano:
 
 - O servidor fica sempre no `metallica` (NVIDIA A2), com `nodeSelector` (decisão do Pedro, 12/11), e os UEs no `molejo`
   (o `blacksabbath` ficou NotReady em 09/11). O `vanhalen` (3 RTX 4000 Ada) e o `whitesnake` (A2) também foram testados.
@@ -13,6 +13,8 @@ e as decisões estão em `docs/passagem-render-real.md`. O que mudou em relaçã
 - O passeio foi gravado no Editor (2 min 16 s a 50 Hz) e a imagem do render é pública (`pedroevaldt/vr-render:fase9.2`).
 - A calibração da Fase 9 vai no `vr/calibracao_render.yaml`, escolhido pela chave `vr.calibracao` do YAML.
 - A validação tem fila própria (`run_fase9.sh`) e roda as três combinações: `hvr_l0`, `hvr_l2` e `scvr_l2`.
+- A `hvr_l2` saiu da faixa da Fase 8, e por isso houve um controle fora do plano: 5 × `hvr_l2` com o servidor
+  sintético no `metallica` (`FILA_FASE=9s`). O controle caiu igual. A causa é a topologia, não o render.
 
 ## Decisões já tomadas
 

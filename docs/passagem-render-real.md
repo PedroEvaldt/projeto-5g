@@ -1,4 +1,4 @@
-# Passagem: o modelo 3D renderizado no servidor de VR (estado em 12/11/2026)
+# Passagem: o modelo 3D renderizado no servidor de VR (estado em 16/11/2026)
 
 Documento de passagem para quem continuar este trabalho. Resume o que foi decidido, o que foi medido, o que
 existe no código e o que falta, em ordem. O plano completo da fase está em `docs/plano-render-real.md`
@@ -16,8 +16,9 @@ threads no PC, e não conhecia Unity nem Blender antes deste trabalho.
   `testar_render.py` e `render_falso.py`.
 - Mudanças fora dessas pastas (09/11/2026), todas desligadas por padrão: `photonpath/src/` (listadas no
   `ORIGEM.txt`), `client_scripts/vr-server-render.yaml` e `vrclients-script.sh`, `scripts/build_testbeds.sh` e
-  `delete_testbeds.sh`, `metricas_scripts/fetch_prometheus.py` e `conferir_execucao.py`. Nada em `spade_agents/`
-  ou `tests_configs/` foi tocado. A Fase 8 (30 execuções × 5 combinações) terminou em 05/11/2026, com o
+  `delete_testbeds.sh`, `metricas_scripts/fetch_prometheus.py` e `conferir_execucao.py`. Em 12/11, a chave
+  `vr.calibracao` (lida em `spade_agents/` e nos scripts de análise, `cb271e00`), a fila da Fase 9 e YAMLs novos em
+  `tests_configs/`; os da Fase 8 não mudaram. A Fase 8 (30 execuções × 5 combinações) terminou em 05/11/2026, com o
   PhotonPath sintético.
 
 ## Decisões tomadas, na ordem
@@ -41,6 +42,7 @@ threads no PC, e não conhecia Unity nem Blender antes deste trabalho.
 | 12/11 | Uso da GPU combinado com o administrador do cluster (o Pedro falou com ele) | A placa fica presa ao pod enquanto ele existir, e a fila da Fase 9 leva horas |
 | 12/11 | Quadros cortados de ~0,5% aceitos (decisão do Pedro) | O corte não muda o tráfego (os 14 pacotes saem iguais); o quadro perde só o final |
 | 12/11 | A Fase 9 tem calibração própria (`vr/calibracao_render.yaml`), escolhida pela chave `vr.calibracao` do YAML | O servidor mudou de nó, e o `net_ref` muda com o caminho; o `vr/calibracao.yaml` da Fase 8 fica intacto |
+| 16/11 | Controle: 5 × `hvr_l2` com o servidor sintético da Fase 8 no `metallica` (o Pedro aprovou) | A `hvr_l2` da Fase 9 saiu da faixa da Fase 8, e só o controle diz se foi o render ou a topologia |
 
 ## O que foi medido (04/11/2026, PC do Pedro: RTX 4060 Ti, 12 threads, Unity 2022.3.62f3, Linux)
 
@@ -248,11 +250,29 @@ ponto. CSVs, figuras e `LEIAME.md` em `metricas_scripts/resultados/calibracao_re
   passava do limite de vez em quando mesmo com CPU de sobra ("o resto fora das cotas", `docs/coleta-vr.md`). Com o
   servidor no `metallica`, de 0,25 núcleo para cima, as 135 janelas ficaram no SLA, com `net_p95` de ~2,3 a 2,5 ms. É
   o teste "mover o `vr-app-01` para um nó sem UEs", anotado no plano, feito de tabela. O nó dos UEs também mudou desde
-  a Fase 4 (`blacksabbath` -> `molejo`), então as duas causas não se separam. Na validação, isso puxa o SLA da VR
-  para cima independente do render.
+  a Fase 4 (`blacksabbath` -> `molejo`), então as duas causas não se separam. Na validação, a `hvr_l2` caiu mesmo
+  assim, com o gold no alto, uma situação que a calibração não cobre (sem leilão, as UPFs de vídeo ficam nos 200m).
+  Ver "A validação e o controle".
 - Com banda folgada, o passeio dá `m2p_p95` mediano de ~56 ms (máximo 62), igual ao do terceiro ensaio.
 - Um tropeço do roteiro, não da VR: a série de CPU começou 16 s depois do fim da de banda e o `calibrar.py` recusou
   a janela da retomada (`health=0`). Basta esperar duas janelas boas entre as séries.
+
+## A validação e o controle (etapa 7, 12, 13 e 16/11/2026)
+
+Resultado completo em `docs/render-real.md`. Em resumo:
+
+- **Validação (15 execuções, 15 válidas):** a `hvr_l0` e a `scvr_l2` ficaram dentro da variação da Fase 8. O `m2p`
+  subiu ~46 ms nas três (o render está todo no `hold`).
+- **A `hvr_l2` caiu de 97,9% para 79,6%** das janelas no SLA (p = 0,03), sempre pelo `net`, quase só depois dos
+  671 s. Nesse trecho os três vídeos tocam e o gold sobe para 14–15 Mbps.
+- **Controle (16/11, 5 × `hvr_l2`, servidor sintético no `metallica`):** 77,8%, igual ao render (p = 0,82). Fora do
+  `m2p`, nada difere.
+- **Conclusão:** a queda é da topologia (servidor no `metallica` e/ou UEs no `molejo`), e o render não muda o que o
+  leilão vê.
+- **Separar as duas causas** pede um segundo controle: o sintético no `molejo`. Decisão do Pedro, em aberto.
+
+Na ledzeppelin, o `vr-app-01` voltou ao render real depois do controle. O `unity-render` está a 60 fps com a GPU, e
+a VR com `health=1`.
 
 ## O que existe no código
 
@@ -276,6 +296,9 @@ ponto. CSVs, figuras e `LEIAME.md` em `metricas_scripts/resultados/calibracao_re
 | Chave `vr.calibracao` do YAML | O arquivo do SLA e dos pisos da VR (padrão: `vr/calibracao.yaml`). Leem a chave o leiloeiro, os agentes da fatia e o estrategista (`spade_agents/`) e, pelo `config.yaml` da execução, a análise (`metricas_scripts/calibracao_vr.py`) |
 | `vr/graficos_calibracao.py --yaml --descricao` | Grava a calibração em outro arquivo (o `vr/calibracao_render.yaml` da Fase 9), com o cabeçalho dizendo qual é |
 | `run_fase9.sh` e `scripts/fila_fase8.py` com `FILA_FASE=9` | A fila da Fase 9: `hvr_l0`, `hvr_l2` e `scvr_l2` com os `tests_configs/test_config_*_render.yaml`, saída em `resultados/fase9/`, estado em `resultados/fase9_fila.csv`. Confere `vr.render`, `vr.calibracao` e se o `vr-app-01` é o do render real no `metallica` |
+| `scripts/trocar_servidor_vr.sh render\|sintetico` | Troca o `vr-app-01` entre o render real e o PhotonPath sintético da Fase 8, os dois no `metallica`, e recria o UE de VR. Recusa com uma execução aberta |
+| `FILA_FASE=9s ./run_fase9.sh` e `tests_configs/test_config_hvr_l2_sintetico.yaml` | A fila do controle: só a `hvr_l2`, com o servidor sintético e a calibração da Fase 9, saída em `resultados/fase9s/`. A fila confere que o `vr-app-01` não tem o `unity-render` |
+| `metricas_scripts/analise_fase9.py [pasta] [por_execucao.csv da referência] [saída] [rótulo] [rótulo da referência]` | Compara uma pasta de execuções com a Fase 8 ou com outra análise dele (ex.: render × controle). Roda no PC: o venv da ledzeppelin não tem `scipy` |
 | `scripts/pfcp_upf.py` (`reiniciar-ue`) | Com o render real no ar, o conserto recria o UE de VR com o passeio (sem ele, o Unity não seguiria o cliente) |
 
 **O contrato PhotonPath ↔ Unity** (em `docs/plano-render-real.md`): pose repassada = `PPOS` 128 B +
@@ -301,9 +324,12 @@ raiz do nó (`nr_periods 0`), então o throttling se lê no caminho de `/proc/se
 ## O que falta, em ordem
 
 1. ~~**Etapa 6**~~: feita em 12/11 (seção "A calibração no metallica").
-2. **Etapa 7**: 5 ciclos da fila da Fase 9 (`./run_fase9.sh --ciclos 5`: 5 × `hvr_l0`, 5 × `hvr_l2` e
-   5 × `scvr_l2`) e a comparação com a Fase 8.
-3. **`docs/render-real.md`** com o resultado, e o `docs/plano-render-real.md` atualizado.
+2. ~~**Etapa 7**~~: feita em 12 e 13/11, com o controle em 16/11 (seção "A validação e o controle").
+3. ~~**`docs/render-real.md`**~~: escrito em 16/11, e o `docs/plano-render-real.md` atualizado.
+4. **Decisão do Pedro:** o segundo controle (sintético no `molejo`, 5 × `hvr_l2`, ~1 h 30 min) ou registrar e fechar
+   a fase. Para o controle, o `trocar_servidor_vr.sh` tem de aceitar o nó.
+5. Trazer `resultados/fase9*` e as análises para o PC (`fase9_analise`, `fase9s_analise`, `fase9_vs_9s`), atualizar
+   o `CLAUDE.md` e, no fim, o fast-forward da `pedro/6443-pfsevaldt` (passo do Pedro).
 
 Para regravar o passeio: `unity/README.md`, etapa A, item 6. O CSV vai para `Assets/StreamingAssets/passeio.csv`
 e `vr/passeio.csv`; depois, recompilar o player (a lista de cenas do build está vazia: o Unity compila a cena
