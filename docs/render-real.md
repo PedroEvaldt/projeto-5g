@@ -18,6 +18,19 @@ do mesmo jeito? Ou seja: o gerador sintético era uma aproximação fiel?
 Ou seja: o gerador sintético era uma aproximação fiel. O que deixou de valer, na `hvr_l2`, é a Fase 8 como referência
 neste testbed.
 
+**A causa da queda (investigação de 16/11/2026, depois do fechamento):** a causa provável é a falta de CPU no nó dos
+UEs (`molejo`), provocada pelo player de vídeo do gold.
+
+- **Um segundo controle** (servidor sintético no `molejo`, junto dos UEs) também cai: 89,8% das janelas no SLA, com 2 de
+  5 execuções claramente abaixo de qualquer uma das 30 da Fase 8. Então basta o lado dos UEs.
+- **Sondas de ping** no caminho da VR mostram o atraso inteiro no túnel 5G simulado até a `upf4`. A rede dos pods e o
+  servidor não mudam.
+- **O Prometheus** mostra o `molejo` com os núcleos disputados: com o gold a 15 Mbps, o Chrome dele gasta ~4 dos 12
+  núcleos, e o UE e o gNB da VR (UERANSIM, no mesmo nó) esperam na fila do escalonador. A `upf4` e o `wb-fibre-01`
+  ficam iguais nas janelas boas e ruins.
+- **É correlação, não prova.** O teste que prova (reservar CPU ao `ue-vr-07` e repetir) não foi feito: o Pedro decidiu
+  parar aqui (16/11).
+
 ## Ambiente
 
 - 12 e 13/11/2026 (validação) e 16/11/2026 (controle), namespace `pfsevaldt`.
@@ -31,6 +44,7 @@ neste testbed.
   `unity-render` desenha cada quadro nessa pose e o codifica; o `photon-server` manda o quadro codificado no lugar do
   payload sintético, no mesmo perfil de pacotes (60 quadros/s × 14 pacotes de 1200 B).
 - Testbed montado com `scripts/build_testbeds.sh --render-real`.
+- O segundo controle e as sondas (16/11/2026, 18:57 a 20:24) rodaram com o servidor sintético no `molejo`, sem GPU.
 
 ## Método
 
@@ -92,6 +106,38 @@ A leitura é direta:
 
 - **Se o controle ficar na faixa da Fase 8**, a queda é do render.
 - **Se cair junto com a Fase 9**, a queda é da topologia, e o render não muda nada.
+
+### Segundo controle e sondas (16/11/2026, depois do fechamento)
+
+Com o controle no `metallica` a queda continuou, e o Pedro quis saber a causa. Duas medidas novas, com a GPU já liberada.
+
+**O segundo controle** põe o servidor sintético no `molejo`, no mesmo nó dos UEs: é a Fase 8 com só o nó dos UEs
+trocado (do `blacksabbath` para o `molejo`). O YAML `tests_configs/test_config_hvr_l2_molejo.yaml` é o da `hvr_l2` da
+Fase 8, com a saída em `resultados/fase9m/`. Como o servidor está no nó dos UEs, a calibração é a da Fase 8.
+
+**As sondas** (`scripts/sonda_rede.sh`) rodam dentro do `ue-vr-07` durante a fila: 5 pings por segundo, em 4 destinos,
+cada um medindo um pedaço do caminho da VR:
+
+| Sonda | Do UE até | Por onde |
+| --- | --- | --- |
+| `upf4_rede` | `upf4` | rede dos pods (sem o 5G) |
+| `upf4_tunel` | `upf4` | túnel 5G (`uesimtun0`: UERANSIM, GTP) |
+| `servidor_rede` | `vr-app-01` | rede dos pods |
+| `servidor_tunel` | `vr-app-01` | túnel 5G (o caminho dos pacotes da VR) |
+
+O `analise_sondas.py` cruza os pings com as janelas da VR pela hora do pod, e divide as janelas em boas e ruins pelo
+limite do `net_p95`. A CPU dos containers e dos nós veio do Prometheus (`prom_cpu_no_hvr_l2.py`, com os horários de
+início de `t0_execucoes.py`), para as 45 execuções `hvr_l2` (30 da Fase 8, 5 de cada controle e da Fase 9).
+
+```bash
+scripts/trocar_servidor_vr.sh sintetico molejo                                                  # põe o servidor sintético no molejo e recria o UE de VR
+tmux new-session -d -s sonda "scripts/sonda_rede.sh metricas_scripts/resultados/fase9m_sonda"   # liga as sondas (tmux kill-session -t sonda para parar)
+FILA_FASE=9m ./run_fase9.sh --ciclos 5                                                          # 5 × hvr_l2 -> resultados/fase9m/ (tmux fase9)
+cd metricas_scripts
+../venv/bin/python analise_sondas.py resultados/fase9m_sonda resultados/fase9m/hvr_l2          # sondas × janelas da VR -> fase9m_sonda/janelas.csv
+../venv/bin/python t0_execucoes.py fase8 "resultados/hvr_l2/*/qoe_vr_timeseries.csv" fase9m "resultados/fase9m/hvr_l2/*/qoe_vr_timeseries.csv" \
+    | ../venv/bin/python prom_cpu_no_hvr_l2.py > resultados/fase9m_prom/prom_fases.csv          # CPU do nó dos UEs por execução, do Prometheus (na ledzeppelin)
+```
 
 ## Resultados
 
@@ -196,14 +242,95 @@ As 5 execuções (16/11) saíram válidas, sem aviso nem conserto. Tabelas em
   ficavam nos 200m do `upf_set_resources.py`. No leilão, o gold ganha CPU e banda e chega a 14–15 Mbps, e é esse
   trecho que falha.
 
+### A causa da queda (investigação de 16/11/2026)
+
+#### O segundo controle: o servidor no `molejo`
+
+| `hvr_l2` | Fase 8 (`blacksabbath`) | Servidor no `molejo` | Servidor no `metallica` (controle) |
+| --- | --- | --- | --- |
+| VR: janelas no SLA (%) | 97,9 ± 1,0 | 89,8 ± 16,4 | 77,8 ± 14,9 |
+| Por execução | 93,3 a 100 | 84,4; 97,8; 68,9; 100; 97,8 | 66,7; 93,3; 66,7; 86,7; 75,6 |
+| Diferença para a Fase 8 (p) | — | −8,1 (0,24) | −20,1 (0,019) |
+| Janelas fora do SLA dos 671 s ao fim | 24 de 540 (4,4%) | 22 de 90 (24%) | 45 de 90 (50%) |
+
+As 5 execuções saíram válidas, sem aviso. A queda também aparece com o servidor ao lado dos UEs, em 2 das 5 execuções
+(a 03, com 68,9%, e a 01, com 84,4%, ficam abaixo de todas as 30 da Fase 8). Então o servidor no `metallica`
+não é a causa única: o lado dos UEs (o `molejo`) basta. Contra o controle no `metallica`, a diferença de +12 pontos
+não é separável com 5 execuções (p = 0,17).
+
+#### As sondas: o atraso está no túnel 5G
+
+225 janelas das 5 execuções: 202 boas e 23 ruins (`net_p95` acima de 4,87 ms). Nenhum ping se perdeu.
+
+| Medida (p95 mediano, ms) | Janelas boas | Janelas ruins | Spearman com o `net_p95` |
+| --- | --- | --- | --- |
+| `net_p95` da VR | 2,29 | 6,73 | — |
+| `upf4_rede` | 0,58 | 0,66 | 0,52 |
+| `upf4_tunel` | 1,87 | 6,56 | 0,67 |
+| `servidor_rede` | 0,13 | 0,28 | 0,29 |
+| `servidor_tunel` | 2,32 | 6,65 | 0,66 |
+
+- **A rede física está inocente:** pela rede dos pods, o tempo quase não muda.
+- **O servidor está inocente:** o atraso já aparece inteiro até a `upf4`, antes do servidor.
+- **O atraso está no que só o túnel tem:** o UE e o gNB do UERANSIM (no `molejo`), o GTP, ou o programa da `upf4` (no
+  `wb-fibre-01`). As sondas não separam esses três.
+
+#### O Prometheus: a CPU do nó dos UEs
+
+Para as mesmas janelas, cruzando a CPU dos containers e dos nós:
+
+| Janelas da VR (servidor no `molejo`) | Boas | Ruins |
+| --- | --- | --- |
+| CPU do player do gold (núcleos) | 1,1 | 3,8 |
+| Espera do escalonador no `molejo` (s/s) | 0,14 | 2,16 |
+| CPU da `upf4` (núcleos) | 0,16 | 0,17 |
+
+A "espera do escalonador" (`node_schedstat_waiting_seconds_total`) é quantos segundos, a cada segundo, os processos do nó
+ficam na fila esperando um núcleo. A `upf4` quase não tem throttling (0,3% dos períodos de CPU, em média; máximo de 4,4%). A `upf4` e o `wb-fibre-01`
+ficam iguais nas janelas boas e ruins. O Chrome do gold a 15 Mbps gasta ~4 dos 12 núcleos do `molejo`, e o UE e o gNB
+da VR (0,17 núcleo cada) precisam de CPU na hora para repassar cada pacote.
+
+Comparando as 45 execuções `hvr_l2` no trecho final (791 a 901 s, com o gold a 15 Mbps em quase todas):
+
+| Nó dos UEs | CPU do player do gold | Espera do escalonador |
+| --- | --- | --- |
+| `blacksabbath` (Fase 8, 30 execuções) | 3,4 núcleos | 1,1 s/s (0,9 a 1,6) |
+| `molejo` (15 execuções: render, controle e segundo controle) | 4,1 núcleos | 2,5 s/s (2,1 a 3,3) |
+
+- **A disputa de CPU já existia na Fase 8**, mas pela metade: a VR ficava logo abaixo do limite (10 das 30 execuções
+  passaram do limite depois dos 671 s, 4,4% das janelas).
+- **O `molejo` espera o dobro com a mesma carga.** O motivo não foi achado: mesmo kernel (6.8.0-136), 12 núcleos, mesma
+  frequência máxima (2,4 GHz). O `molejo` ficou com o governador `schedutil`, e a frequência média dele sobe com a carga
+  (1,4 a 2,2 GHz nas medidas); a do `blacksabbath` foi de 1,3 a 2,2 GHz. Não há diferença que explique.
+- **A única execução do `molejo` fora da faixa** é a `hvrl2m_05` (0,55 s/s), em que o gold ficou em ~9,5 Mbps.
+- **O gold no alto não decide sozinho se a VR cruza o limite.** Nas execuções 02 e 04 o gold ficou a 14–15 Mbps e a
+  VR terminou em 98 e 100%, mas o ping pelo túnel também subiu (de 1,8 para 6,8 ms): a VR só ficou abaixo dos 4,87 ms. Por
+  isso o resultado parece intermitente.
+
+#### O que se conclui, e o que falta
+
+- **Conclusão provável:** o player do gold, a 15 Mbps, ocupa CPU do `molejo`; o UE e o gNB da VR esperam na fila do
+  escalonador; o atraso aparece no túnel 5G; a VR passa do limite do `net`, às vezes.
+- **O leilão não enxerga isso:** ele controla a CPU e a banda das UPFs. Por isso o agente da VR, em 37 de 38 lances
+  com o `net` acima do limite, diagnosticava `fora_das_cotas`: a `upf4` tinha CPU e banda de sobra.
+- **O teste que provaria:** reservar CPU ao `ue-vr-07` (ou tirar o player do gold do nó) e repetir 5 × `hvr_l2`
+  (~1 h 30 min). Não foi feito: o Pedro decidiu parar aqui (16/11/2026).
+- Os dados do Prometheus da Fase 8 ficam disponíveis por 30 dias (até ~02/12/2026). Os CSVs desta análise estão em
+  `metricas_scripts/resultados/fase9m_prom/`, fora do git.
+
 ## Limites
 
 - **5 execuções por combinação, contra 30 da Fase 8.** Os ICs da Fase 9 são largos (±15 pontos no SLA da `hvr_l2`), e
   só diferenças grandes aparecem. "Na faixa" é um critério frouxo: a faixa das 30 vai do pior ao melhor caso.
 - **O controle cobre só a `hvr_l2`.** Na `hvr_l0` e na `scvr_l2` não houve diferença a explicar.
-- **O controle não separa as duas mudanças da topologia** (servidor no `metallica` × UEs no `molejo`). Fica a hipótese,
-  sem prova, de que o tráfego do gold no alto e o da VR se atrapalham em algum ponto do caminho, porque o `net` sobe
-  com o gold e a CPU não explica. Separar as duas pede um segundo controle (abaixo).
+- **O primeiro controle não separa as duas mudanças da topologia** (servidor no `metallica` × UEs no `molejo`); o segundo
+  controle separa (seção "A causa").
+- **A causa não está provada.** Nenhum experimento mexeu na CPU do nó dos UEs. Só dá para afirmar que a espera do
+  escalonador no `molejo` sobe junto com o `net` da VR, e que o `molejo` espera o dobro do `blacksabbath` com a
+  mesma carga, sem que eu tenha achado o motivo (mesmo kernel e 12 núcleos nos dois). Foi medido em execuções de
+  ~15 min, não em microssegundos.
+- **O segundo controle tem 5 execuções.** A diferença para o primeiro (2 de 5 abaixo da faixa contra 10 de 10) não é
+  estatisticamente separável (p = 0,17).
 - **Um render, uma placa e um passeio:** imagem `fase9.2`, a A2 do `metallica`, o passeio pelo museu. Outra placa muda
   o `hold` e o `m2p`: o render leva ~33 ms na A2 e ~23 ms na RTX 4000 Ada do `vanhalen`. A rede não muda, porque o
   tráfego é CBR.
@@ -221,14 +348,11 @@ As 5 execuções (16/11) saíram válidas, sem aviso nem conserto. Tabelas em
   execuções da Fase 8 sobre o leilão continuam valendo com um servidor que renderiza de verdade. O que o sintético
   não representa é o `m2p`.
 - **A Fase 8 deixa de ser referência para a `hvr_l2` neste testbed.** A decisão de 09/11 (mudar os UEs para o `molejo`
-  sem remedir) partiu de os dois nós terem a mesma especificação, mas a `hvr_l2` mudou. Comparações novas precisam de
-  uma referência sintética medida na mesma topologia, como o controle.
-- **Fica em aberto, por decisão do Pedro (16/11/2026):** a fase fecha sem o segundo controle, porque ele não muda a
-  resposta da Fase 9. O segundo controle passa a valer quando um experimento novo for comparado com a Fase 8 neste
-  testbed. Seria o servidor sintético no `molejo` (o `vr-server.yaml` como está), 5 × `hvr_l2`, ~1 h 30 min: é a Fase 8
-  com só o nó dos UEs trocado, e separa as duas mudanças:
-  - **Se a queda aparecer**, a causa é o `molejo` (ou o caminho até ele), e qualquer execução nova da Fase 8 neste
-    testbed já sai diferente.
-  - **Se não aparecer**, a causa é o servidor longe dos UEs.
-
-  O `scripts/trocar_servidor_vr.sh` só conhece o `metallica` e teria de aceitar o nó como argumento.
+  sem remedir) partiu de os dois nós terem a mesma especificação, mas a `hvr_l2` mudou: o `molejo` espera mais CPU que o
+  `blacksabbath` com a mesma carga, e isso aparece no `net` da VR. Comparações novas precisam de uma referência
+  sintética medida na mesma topologia, como os dois controles.
+- **O testbed tem uma limitação própria:** os UEs simulados e os players de vídeo dividem o nó, e com o gold a 15 Mbps
+  o player disputa CPU com o UE e o gNB da VR. É uma propriedade do testbed, não do leilão nem do render. Se a VR
+  precisar de um SLA mais estável, o caminho é reservar CPU ao `ue-vr-07` ou separar os nós (não feito).
+- **Fica em aberto, por decisão do Pedro (16/11/2026):** a investigação parou na correlação. O teste que prova a
+  causa está descrito acima.

@@ -1,4 +1,4 @@
-# Passagem: o modelo 3D renderizado no servidor de VR (estado em 16/11/2026)
+# Passagem: o modelo 3D renderizado no servidor de VR (estado em 16/11/2026, com a investigação da queda)
 
 Documento de passagem para quem continuar este trabalho. Resume o que foi decidido, o que foi medido, o que
 existe no código e o que falta, em ordem. O plano completo da fase está em `docs/plano-render-real.md`
@@ -43,7 +43,9 @@ threads no PC, e não conhecia Unity nem Blender antes deste trabalho.
 | 12/11 | Quadros cortados de ~0,5% aceitos (decisão do Pedro) | O corte não muda o tráfego (os 14 pacotes saem iguais); o quadro perde só o final |
 | 12/11 | A Fase 9 tem calibração própria (`vr/calibracao_render.yaml`), escolhida pela chave `vr.calibracao` do YAML | O servidor mudou de nó, e o `net_ref` muda com o caminho; o `vr/calibracao.yaml` da Fase 8 fica intacto |
 | 16/11 | Controle: 5 × `hvr_l2` com o servidor sintético da Fase 8 no `metallica` (o Pedro aprovou) | A `hvr_l2` da Fase 9 saiu da faixa da Fase 8, e só o controle diz se foi o render ou a topologia |
-| **16/11** | **Fase fechada sem o segundo controle (sintético no `molejo`) e GPU liberada** (decisão do Pedro) | O controle já respondeu a pergunta da fase; saber se a culpa é do `metallica` ou do `molejo` só importa quando um experimento novo for comparado com a Fase 8 |
+| **16/11** | **Fase fechada e GPU liberada** (decisão do Pedro) | O controle já respondeu a pergunta da fase |
+| 16/11 | Investigar a queda da `hvr_l2`: segundo controle (sintético no `molejo`, 5 × `hvr_l2`) e sondas de ping (o Pedro aprovou) | Fechar sem saber a causa deixava um resultado da Fase 8 sem referência neste testbed |
+| **16/11** | **Parar a investigação na correlação, sem o teste de reservar CPU ao `ue-vr-07`** (decisão do Pedro) | A causa provável (CPU do `molejo` disputada pelo player do gold) já explica o que se viu; provar custa ~1 h 30 min e muda o ambiente |
 
 ## O que foi medido (04/11/2026, PC do Pedro: RTX 4060 Ti, 12 threads, Unity 2022.3.62f3, Linux)
 
@@ -270,8 +272,11 @@ Resultado completo em `docs/render-real.md`. Em resumo:
   `m2p`, nada difere.
 - **Conclusão:** a queda é da topologia (servidor no `metallica` e/ou UEs no `molejo`), e o render não muda o que o
   leilão vê.
-- **Separar as duas causas** pede um segundo controle: o sintético no `molejo`. O Pedro decidiu fechar a fase sem ele
-  (16/11), porque ele não muda a resposta. Fica para quando um experimento novo for comparado com a Fase 8.
+- **Investigação depois do fechamento (16/11):** o segundo controle (sintético no `molejo`) deu 89,8%, com 2 de 5
+  execuções abaixo da faixa da Fase 8, e as sondas puseram o atraso no túnel 5G até a `upf4`. O Prometheus mostra o
+  `molejo` com os núcleos disputados pelo player do gold (espera do escalonador 2,5 s/s contra 1,1 no `blacksabbath`,
+  na Fase 8). Causa provável: falta de CPU no nó dos UEs. Detalhes e tabelas em `docs/render-real.md`, seção "A causa
+  da queda". Não está provada: o teste de reservar CPU ao `ue-vr-07` não foi feito (decisão do Pedro).
 
 Depois do controle, o `vr-app-01` voltou ao render real e foi conferido: 60 fps com a GPU e `health=1`. Na mesma tarde
 (16/11), com a fase fechada, o Deployment foi apagado para liberar a GPU do `metallica`. O Service e o ServiceMonitor
@@ -302,6 +307,11 @@ ficaram. Para subir de novo: `scripts/trocar_servidor_vr.sh render` (ou `build_t
 | `scripts/trocar_servidor_vr.sh render\|sintetico` | Troca o `vr-app-01` entre o render real e o PhotonPath sintético da Fase 8, os dois no `metallica`, e recria o UE de VR. Recusa com uma execução aberta |
 | `FILA_FASE=9s ./run_fase9.sh` e `tests_configs/test_config_hvr_l2_sintetico.yaml` | A fila do controle: só a `hvr_l2`, com o servidor sintético e a calibração da Fase 9, saída em `resultados/fase9s/`. A fila confere que o `vr-app-01` não tem o `unity-render` |
 | `metricas_scripts/analise_fase9.py [pasta] [por_execucao.csv da referência] [saída] [rótulo] [rótulo da referência]` | Compara uma pasta de execuções com a Fase 8 ou com outra análise dele (ex.: render × controle). Roda no PC: o venv da ledzeppelin não tem `scipy` |
+| `scripts/trocar_servidor_vr.sh render\|sintetico [nó]` | O nó é opcional (padrão `metallica`); o render só vai para o `metallica`. O sintético no `molejo` usa `sintetico molejo` |
+| `FILA_FASE=9m ./run_fase9.sh` e `tests_configs/test_config_hvr_l2_molejo.yaml` | O segundo controle: só a `hvr_l2`, com o sintético no `molejo` e a calibração da Fase 8, saída em `resultados/fase9m/`. Recusa YAML com `vr.calibracao` |
+| `scripts/sonda_rede.sh <pasta>` | 4 pings paralelos do `ue-vr-07` (rede e túnel até a `upf4` e até o `vr-app-01`); ao parar, mata os pings do pod. Rodar num tmux `sonda` durante a fila |
+| `metricas_scripts/analise_sondas.py <sondas> <execuções>` | Cruza os pings com as janelas da VR e imprime a tabela de boas × ruins e o Spearman; grava o `janelas.csv` |
+| `metricas_scripts/t0_execucoes.py` e `prom_cpu_no_hvr_l2.py` | O primeiro lista o horário de início de cada execução; o segundo, lido por stdin e rodado na ledzeppelin, pega no Prometheus a CPU do player do gold, a espera do escalonador e a CPU da `upf4` por execução (fases 64–346 e 791–901 s) |
 | `scripts/pfcp_upf.py` (`reiniciar-ue`) | Com o render real no ar, o conserto recria o UE de VR com o passeio (sem ele, o Unity não seguiria o cliente) |
 
 **O contrato PhotonPath ↔ Unity** (em `docs/plano-render-real.md`): pose repassada = `PPOS` 128 B +
@@ -329,9 +339,9 @@ raiz do nó (`nr_periods 0`), então o throttling se lê no caminho de `/proc/se
 1. ~~**Etapa 6**~~: feita em 12/11 (seção "A calibração no metallica").
 2. ~~**Etapa 7**~~: feita em 12 e 13/11, com o controle em 16/11 (seção "A validação e o controle").
 3. ~~**`docs/render-real.md`**~~: escrito em 16/11, e o `docs/plano-render-real.md` atualizado.
-4. ~~**Fechar a fase**~~: fechada em 16/11, sem o segundo controle, e com a GPU liberada (decisão do Pedro). Se um dia
-   o controle for preciso (sintético no `molejo`, 5 × `hvr_l2`, ~1 h 30 min), o `trocar_servidor_vr.sh` tem de aceitar
-   o nó.
+4. ~~**Fechar a fase**~~: fechada em 16/11 e com a GPU liberada (decisão do Pedro).
+   ~~**Investigar a queda da `hvr_l2`**~~: feita em 16/11 (segundo controle, sondas, Prometheus). Falta só a prova,
+   se o Pedro quiser: reservar CPU ao `ue-vr-07` e repetir 5 × `hvr_l2`.
 5. Trazer `resultados/fase9*` e as análises para o PC (`fase9_analise`, `fase9s_analise`, `fase9_vs_9s`), atualizar
    o `CLAUDE.md` e, no fim, o fast-forward da `pedro/6443-pfsevaldt` (passo do Pedro).
 

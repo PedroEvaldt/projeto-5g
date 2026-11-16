@@ -3,6 +3,8 @@
 **Pergunta:** o resultado do leilão se mantém quando o servidor de VR deixa de ser um gerador sintético e passa a renderizar o modelo 3D do projeto, com um usuário simulado andando por ele?
 
 **Estado:** plano de 03/11/2026. Fase concluída em 16/11/2026 (etapas 0 a 7); o resultado está em `docs/render-real.md`.
+Depois do fechamento, uma investigação (segundo controle, sondas e Prometheus) achou a causa provável da queda da `hvr_l2`:
+falta de CPU no `molejo`, disputada pelo player do gold (seção "A causa da queda" do `docs/render-real.md`).
 O estado, as medidas e as decisões estão em `docs/passagem-render-real.md`. O que mudou em relação a este plano:
 
 - O servidor fica sempre no `metallica` (NVIDIA A2), com `nodeSelector` (decisão do Pedro, 12/11), e os UEs no `molejo`
