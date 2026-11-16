@@ -16,6 +16,10 @@
 #   touch metricas_scripts/resultados/fase9s_parar  # para o controle depois da execução atual
 #   scripts/trocar_servidor_vr.sh render            # volta ao render real
 #
+# Segundo controle (resultados/fase9m/): o mesmo sintético no molejo, junto dos UEs, com a calibração da Fase 8.
+#   scripts/trocar_servidor_vr.sh sintetico molejo  # o vr-app-01 sintético no molejo
+#   FILA_FASE=9m ./run_fase9.sh --ciclos 5          # 5 x hvr_l2 com ele (~1 h 30 min)
+#
 # Acompanhar: tmux attach -t fase9 (Ctrl+b d sai sem parar). Estado: metricas_scripts/resultados/fase9_fila.csv
 # =========================================================================
 set -euo pipefail
@@ -24,7 +28,7 @@ PY="$REPO/venv/bin/python"
 cd "$REPO"
 [ -x "$PY" ] || { echo "[ERRO] venv não encontrado em $REPO/venv"; exit 1; }
 export FILA_FASE=${FILA_FASE:-9}
-[[ "$FILA_FASE" =~ ^9s?$ ]] || { echo "[ERRO] FILA_FASE=$FILA_FASE: este script é da Fase 9 (9 ou 9s)"; exit 1; }
+[[ "$FILA_FASE" =~ ^9[sm]?$ ]] || { echo "[ERRO] FILA_FASE=$FILA_FASE: este script é da Fase 9 (9, 9s ou 9m)"; exit 1; }
 
 if [ "${1:-}" = "--ciclos" ] && [ -z "${FASE9_DENTRO:-}" ]; then
     # Confere antes de abrir o tmux, para o erro aparecer aqui e não dentro da sessão

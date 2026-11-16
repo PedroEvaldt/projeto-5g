@@ -8,7 +8,8 @@ Fila de execuções da Fase 8: 5 combinações x 30 ciclos, intercaladas. Chamad
 Com FILA_FASE=9 (o run_fase9.sh), é a fila da Fase 9: 3 combinações x 5 ciclos com o render real, a saída em
 resultados/fase9/ e os arquivos de estado com fase9_ no lugar de fase8_. O resto é igual. Com FILA_FASE=9s, é o
 controle da Fase 9: a hvr_l2 com o servidor sintético da Fase 8 no mesmo nó (scripts/trocar_servidor_vr.sh sintetico),
-5 ciclos, saída em resultados/fase9s/.
+5 ciclos, saída em resultados/fase9s/. Com FILA_FASE=9m, o segundo controle: o mesmo servidor sintético no molejo, junto
+dos UEs, como na Fase 8 (trocar_servidor_vr.sh sintetico molejo), com a calibração da Fase 8 e saída em resultados/fase9m/.
 
 Cada ciclo roda 1 execução de cada combinação, numa ordem sorteada com o número do ciclo como semente
 (a mesma ordem se a fila for retomada). Nome: <prefixo>_<ciclo>, ex. hvrl2_07, na pasta resultados/<combinação>/.
@@ -38,7 +39,7 @@ import yaml
 
 import pfcp_upf
 
-FASE = os.environ.get("FILA_FASE", "8")     # 9: o render real (run_fase9.sh); 9s: o controle sintético dela
+FASE = os.environ.get("FILA_FASE", "8")     # 9: o render real (run_fase9.sh); 9s e 9m: os controles sintéticos dela
 REPO = Path(__file__).resolve().parent.parent
 RES = REPO / "metricas_scripts" / "resultados"
 SAIDA = RES if FASE == "8" else RES / f"fase{FASE}"   # as pastas das combinações e as descartadas
@@ -46,9 +47,9 @@ FILA = RES / f"fase{FASE}_fila.csv"
 LOG = RES / f"fase{FASE}_fila.log"
 REPAROS = RES / f"fase{FASE}_reparos.csv"
 PARAR = RES / f"fase{FASE}_parar"
-RUN = "FILA_FASE=9s ./run_fase9.sh" if FASE == "9s" else f"./run_fase{FASE}.sh"   # para as mensagens
+RUN = f"FILA_FASE={FASE} ./run_fase9.sh" if FASE in ("9s", "9m") else f"./run_fase{FASE}.sh"   # para as mensagens
 PY = str(REPO / "venv" / "bin" / "python")
-CICLOS = {"8": 30, "9": 5, "9s": 5}[FASE]
+CICLOS = {"8": 30, "9": 5, "9s": 5, "9m": 5}[FASE]
 FALHAS_SEGUIDAS = 3     # tentativas que falharam em seguida (de uma execução ou de várias): para a fila
 PAUSA_S = int(os.environ.get("FASE8_PAUSA_S", 60))   # entre execuções: o XMPP solta a porta e a upf4 reassocia o PFCP depois do reset
 CAMPOS = ["ciclo", "ordem", "combinacao", "nome", "tentativa", "inicio", "fim", "status", "motivo", "commit"]
@@ -76,9 +77,15 @@ COMBINACOES = {
     "9s": [
         ("hvr_l2", "hvrl2s", "tests_configs/test_config_hvr_l2_sintetico.yaml", (True, "sla", "artigo")),
     ],
+    # Segundo controle: o controle caiu igual ao render; com o servidor sintético de volta ao lado dos UEs, sobra só o
+    # nó dos UEs (molejo no lugar do blacksabbath) de diferença para a Fase 8. Prefixo "m" de molejo
+    "9m": [
+        ("hvr_l2", "hvrl2m", "tests_configs/test_config_hvr_l2_molejo.yaml", (True, "sla", "artigo")),
+    ],
 }[FASE]
 CALIBRACAO_RENDER = "vr/calibracao_render.yaml"   # Fases 9 e 9s: o SLA e os pisos medidos com o servidor no nó de GPU
-NO_RENDER = "metallica"                          # Fases 9 e 9s: o nó do vr-app-01 (decisão do Pedro, 12/11/2026)
+# O nó do vr-app-01: o da GPU nas Fases 9 e 9s (decisão do Pedro, 12/11/2026); o dos UEs na 9m
+NO_VR = {"9": "metallica", "9s": "metallica", "9m": "molejo"}.get(FASE)
 DRONE_PRIORIDADE = 5.0  # SC-VR (decisão da Fase 7)
 
 
@@ -146,23 +153,25 @@ def conferir_preparo():
             erros.append(f"{arq}: a Fase {FASE} pede " + ("vr.render: real" if FASE == "9" else "o servidor sintético (sem vr.render: real)"))
         if FASE in ("9", "9s") and v.get("calibracao") != CALIBRACAO_RENDER:
             erros.append(f"{arq}: a Fase {FASE} pede vr.calibracao: {CALIBRACAO_RENDER}")
+        if FASE == "9m" and v.get("calibracao"):
+            erros.append(f"{arq}: a Fase 9m usa a calibração da Fase 8 (sem vr.calibracao)")
         for nome, s in c["slices"].items():
             if comb.startswith("scvr") and s.get("tipo") == "vr" and float(s["initial_priority"]) != DRONE_PRIORIDADE:
                 erros.append(f"{arq}: {nome} com prioridade inicial {s['initial_priority']}, a Fase {FASE} usa {DRONE_PRIORIDADE}")
-    if FASE in ("9", "9s"):
-        if not (REPO / CALIBRACAO_RENDER).exists():
-            erros.append(f"falta o {CALIBRACAO_RENDER} (a etapa 6: vr/calibrar.py e vr/graficos_calibracao.py)")
-        # O testbed tem de ter subido com o build_testbeds.sh --render-real e o pod no nó da GPU: na 9 com o Unity,
-        # na 9s sem ele (scripts/trocar_servidor_vr.sh sintetico)
+    if FASE in ("9", "9s") and not (REPO / CALIBRACAO_RENDER).exists():
+        erros.append(f"falta o {CALIBRACAO_RENDER} (a etapa 6: vr/calibrar.py e vr/graficos_calibracao.py)")
+    if FASE != "8":
+        # O testbed tem de ter subido com o build_testbeds.sh --render-real e o pod no nó certo: na 9 com o Unity,
+        # na 9s e na 9m sem ele (scripts/trocar_servidor_vr.sh sintetico [nó])
         r = subprocess.run(["kubectl", "get", "deployment", "vr-app-01", "-n", "pfsevaldt", "-o",
                             "jsonpath={.spec.template.spec.containers[*].name}|"
                             "{.spec.template.spec.nodeSelector.kubernetes\\.io/hostname}"],
                            capture_output=True, text=True)
         nomes, _, no = r.stdout.partition("|")
-        if ("unity-render" in nomes.split()) != (FASE == "9") or no != NO_RENDER:
+        if ("unity-render" in nomes.split()) != (FASE == "9") or no != NO_VR:
             pede, como = (("o do render real", "suba o testbed com scripts/build_testbeds.sh --render-real") if FASE == "9"
-                          else ("o sintético", "scripts/trocar_servidor_vr.sh sintetico"))
-            erros.append(f"o vr-app-01 não é {pede} no {NO_RENDER} (containers: {nomes or '?'}, nó: {no or '?'}): {como}")
+                          else ("o sintético", f"scripts/trocar_servidor_vr.sh sintetico {NO_VR}"))
+            erros.append(f"o vr-app-01 não é {pede} no {NO_VR} (containers: {nomes or '?'}, nó: {no or '?'}): {como}")
     # Os clientes de vídeo com RollingUpdate ficam com o IMSI duplicado no restart, e o AMF às vezes perde o UE novo
     videos = sorted({s["client_pod"] for _, _, arq, _ in COMBINACOES
                      for s in yaml.safe_load(open(REPO / arq))["slices"].values() if s.get("tipo", "video") != "vr"})
