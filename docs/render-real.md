@@ -223,8 +223,10 @@ As 5 execuções (16/11) saíram válidas, sem aviso nem conserto. Tabelas em
 - **A Fase 8 deixa de ser referência para a `hvr_l2` neste testbed.** A decisão de 09/11 (mudar os UEs para o `molejo`
   sem remedir) partiu de os dois nós terem a mesma especificação, mas a `hvr_l2` mudou. Comparações novas precisam de
   uma referência sintética medida na mesma topologia, como o controle.
-- **Em aberto, decisão do Pedro:** um segundo controle, o servidor sintético no `molejo` (o `vr-server.yaml` como está),
-  5 × `hvr_l2`, ~1 h 30 min. É a Fase 8 com só o nó dos UEs trocado, e separa as duas mudanças:
+- **Fica em aberto, por decisão do Pedro (16/11/2026):** a fase fecha sem o segundo controle, porque ele não muda a
+  resposta da Fase 9. O segundo controle passa a valer quando um experimento novo for comparado com a Fase 8 neste
+  testbed. Seria o servidor sintético no `molejo` (o `vr-server.yaml` como está), 5 × `hvr_l2`, ~1 h 30 min: é a Fase 8
+  com só o nó dos UEs trocado, e separa as duas mudanças:
   - **Se a queda aparecer**, a causa é o `molejo` (ou o caminho até ele), e qualquer execução nova da Fase 8 neste
     testbed já sai diferente.
   - **Se não aparecer**, a causa é o servidor longe dos UEs.

@@ -43,6 +43,7 @@ threads no PC, e não conhecia Unity nem Blender antes deste trabalho.
 | 12/11 | Quadros cortados de ~0,5% aceitos (decisão do Pedro) | O corte não muda o tráfego (os 14 pacotes saem iguais); o quadro perde só o final |
 | 12/11 | A Fase 9 tem calibração própria (`vr/calibracao_render.yaml`), escolhida pela chave `vr.calibracao` do YAML | O servidor mudou de nó, e o `net_ref` muda com o caminho; o `vr/calibracao.yaml` da Fase 8 fica intacto |
 | 16/11 | Controle: 5 × `hvr_l2` com o servidor sintético da Fase 8 no `metallica` (o Pedro aprovou) | A `hvr_l2` da Fase 9 saiu da faixa da Fase 8, e só o controle diz se foi o render ou a topologia |
+| **16/11** | **Fase fechada sem o segundo controle (sintético no `molejo`) e GPU liberada** (decisão do Pedro) | O controle já respondeu a pergunta da fase; saber se a culpa é do `metallica` ou do `molejo` só importa quando um experimento novo for comparado com a Fase 8 |
 
 ## O que foi medido (04/11/2026, PC do Pedro: RTX 4060 Ti, 12 threads, Unity 2022.3.62f3, Linux)
 
@@ -269,10 +270,12 @@ Resultado completo em `docs/render-real.md`. Em resumo:
   `m2p`, nada difere.
 - **Conclusão:** a queda é da topologia (servidor no `metallica` e/ou UEs no `molejo`), e o render não muda o que o
   leilão vê.
-- **Separar as duas causas** pede um segundo controle: o sintético no `molejo`. Decisão do Pedro, em aberto.
+- **Separar as duas causas** pede um segundo controle: o sintético no `molejo`. O Pedro decidiu fechar a fase sem ele
+  (16/11), porque ele não muda a resposta. Fica para quando um experimento novo for comparado com a Fase 8.
 
-Na ledzeppelin, o `vr-app-01` voltou ao render real depois do controle. O `unity-render` está a 60 fps com a GPU, e
-a VR com `health=1`.
+Depois do controle, o `vr-app-01` voltou ao render real e foi conferido: 60 fps com a GPU e `health=1`. Na mesma tarde
+(16/11), com a fase fechada, o Deployment foi apagado para liberar a GPU do `metallica`. O Service e o ServiceMonitor
+ficaram. Para subir de novo: `scripts/trocar_servidor_vr.sh render` (ou `build_testbeds.sh --render-real`).
 
 ## O que existe no código
 
@@ -326,8 +329,9 @@ raiz do nó (`nr_periods 0`), então o throttling se lê no caminho de `/proc/se
 1. ~~**Etapa 6**~~: feita em 12/11 (seção "A calibração no metallica").
 2. ~~**Etapa 7**~~: feita em 12 e 13/11, com o controle em 16/11 (seção "A validação e o controle").
 3. ~~**`docs/render-real.md`**~~: escrito em 16/11, e o `docs/plano-render-real.md` atualizado.
-4. **Decisão do Pedro:** o segundo controle (sintético no `molejo`, 5 × `hvr_l2`, ~1 h 30 min) ou registrar e fechar
-   a fase. Para o controle, o `trocar_servidor_vr.sh` tem de aceitar o nó.
+4. ~~**Fechar a fase**~~: fechada em 16/11, sem o segundo controle, e com a GPU liberada (decisão do Pedro). Se um dia
+   o controle for preciso (sintético no `molejo`, 5 × `hvr_l2`, ~1 h 30 min), o `trocar_servidor_vr.sh` tem de aceitar
+   o nó.
 5. Trazer `resultados/fase9*` e as análises para o PC (`fase9_analise`, `fase9s_analise`, `fase9_vs_9s`), atualizar
    o `CLAUDE.md` e, no fim, o fast-forward da `pedro/6443-pfsevaldt` (passo do Pedro).
 
