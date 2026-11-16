@@ -8,8 +8,9 @@
 #   servidor_rede    nó dos UEs -> vr-app-01, pela rede dos pods
 #   servidor_tunel   nó dos UEs -> vr-app-01, pelo túnel 5G (o caminho dos pacotes da VR)
 # Cada resposta sai com a hora do pod (ping -D), o mesmo relógio do Timestamp_Pod do qoe_vr_timeseries.csv: o
-# metricas_scripts/analise_sondas.py cruza as duas. Os pings são de 10 min (ping -w), para nenhum ficar órfão no pod
-# se a sonda morrer; um pod recriado (conserto da fila) só interrompe a sonda por alguns segundos.
+# metricas_scripts/analise_sondas.py cruza as duas. Ao parar, a sonda mata os pings de dentro do pod; se ela morrer
+# sem isso, eles terminam sozinhos em 10 min (ping -w). Um pod recriado (conserto da fila) só interrompe a sonda por
+# alguns segundos.
 #
 # Uso (da raiz do repositório, na ledzeppelin), num tmux à parte enquanto a fila roda:
 #   tmux new-session -d -s sonda "scripts/sonda_rede.sh metricas_scripts/resultados/fase9m_sonda"   # começa
@@ -19,7 +20,15 @@ set -uo pipefail
 NS=pfsevaldt
 SAIDA=${1:?uso: $0 <pasta de saída>}
 mkdir -p "$SAIDA"
-trap 'kill 0' INT TERM EXIT
+
+parar() {
+    trap - INT TERM EXIT
+    # O kubectl exec morto não leva junto o ping de dentro do pod: mata os que ficaram, e depois as sondas daqui
+    kubectl exec -n $NS deploy/ue-vr-07 -c ue -- \
+        sh -c 'for p in $(ps aux | awk "/[p]ing -D/ {print \$2}"); do kill $p; done' 2>/dev/null
+    kill 0
+}
+trap parar INT TERM EXIT
 
 sonda() {   # nome, interface do UE, rótulo app= do pod de destino
     while true; do
