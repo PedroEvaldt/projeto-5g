@@ -49,7 +49,7 @@ PRESA_S = 30            # sem "associated" por mais que isso depois de um "de-as
 VOLTA_S = 60            # depois de recriar o pod, o tempo para o SMF reassociar
 UDM_CHEIO = "Maximum number of SDM Subscriptions"
 VR_SERVIDOR = "vr-app-01"   # o PP_SERVER do vr_exporter.py; o ClusterIP não responde a ping, então vai ao pod
-SMF = "smf"                 # o nosso SMF (rótulo app=smf); o smf2 só atende a upf8–10, que as execuções não usam
+SMF = "smf"                 # o nosso SMF (rótulo app=smf)
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 CARIMBO = r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?)Z "

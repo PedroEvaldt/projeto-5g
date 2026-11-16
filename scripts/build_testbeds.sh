@@ -85,11 +85,11 @@ main() {
     check_pods
 
     echo Subindo UPFs
-    bash "$PROJECT_DIR/5Gcore_files/deploy-upf.sh"                           # cria upf1 a upf10 no nó wb-fibre-01, com resize sem reinício e banda do Calico
+    bash "$PROJECT_DIR/5Gcore_files/deploy-upf.sh"                           # cria upf1 a upf4 no nó wb-fibre-01, com resize sem reinício e banda do Calico
     check_pods
 
     echo Subindo Core 5G
-    kubectl apply -n $NS -f  "$PROJECT_DIR/5Gcore_files/recent-op5g.yaml"            # funções do core: NRF, AMF, SMF, SMF2, AUSF, UDM, UDR, NSSF, PCF, BSF
+    kubectl apply -n $NS -f  "$PROJECT_DIR/5Gcore_files/recent-op5g.yaml"            # funções do core: NRF, AMF, SMF, AUSF, UDM, UDR, NSSF, PCF, BSF
     kubectl apply -n $NS -f  "$PROJECT_DIR/5Gcore_files/webui.yaml"                  # (opcional) interface web para ver os assinantes
     check_pods
 

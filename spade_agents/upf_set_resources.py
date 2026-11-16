@@ -77,8 +77,8 @@ def main():
 
     print(f"Target Initial State -> CPU: {INITIAL_CPU} | MEM: {INITIAL_MEMORY}Mi | BW: {INITIAL_BANDWIDTH}M")
 
-    # Generate the list of your UPF labels: ["upf", "upf2", "upf3" ... "upf9"]
-    target_apps = [f"upf{i}" for i in range(1,10)]
+    # As 4 UPFs do testbed: upf1-3 (vídeo) e upf4 (VR). Até 16/11/2026 eram upf1-9
+    target_apps = [f"upf{i}" for i in range(1,5)]
 
     for app in target_apps:
         reset_upf_pod(v1, app, INITIAL_CPU, INITIAL_MEMORY, INITIAL_BANDWIDTH)

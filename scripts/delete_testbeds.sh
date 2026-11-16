@@ -69,9 +69,11 @@ main() {
     echo "Apagando core 5G e webui"
     kubectl delete -n "$NS" -f "$PROJECT_DIR/5Gcore_files/webui.yaml" --ignore-not-found
     kubectl delete -n "$NS" -f "$PROJECT_DIR/5Gcore_files/recent-op5g.yaml" --ignore-not-found
+    kubectl delete -n "$NS" deployment/smf2 service/smf2 configmap/smf2 --ignore-not-found          # o smf2 de um testbed antigo (atendia as upf8-10)
+    kubectl delete -n "$NS" servicemonitor/smf2 --ignore-not-found 2>/dev/null || true
 
     echo "Apagando UPFs"
-    for i in $(seq 1 10); do
+    for i in $(seq 1 10); do                                 # até 10: apaga também as upf5-10 de um testbed antigo
         kubectl delete -n "$NS" deployment/upf$i service/upf$i service/upf$i-gtp configmap/upf$i --ignore-not-found
         kubectl delete -n "$NS" servicemonitor/upf$i --ignore-not-found 2>/dev/null || true   # pode não haver permissão ou CRD; não é motivo para parar
     done

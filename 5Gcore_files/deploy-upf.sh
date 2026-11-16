@@ -6,8 +6,8 @@ NODE_NAME="wb-fibre-01"
 
 # A partir de qual número de UPF começar?
 START_ID=1
-# Quantos UPFs criar no total?
-COUNT=10
+# Quantos UPFs criar no total? upf1-3 = vídeo, upf4 = VR. Até 16/11/2026 eram 10 (upf5-10 paradas, nunca usadas)
+COUNT=4
 # =================================================
 
 echo "--- Iniciando o Deploy Automático de UPFs ---"
