@@ -219,8 +219,8 @@ spec:
               mountPath: /dev/net/tun
 
         # 3. Container do Cliente de VR (Aplicação)
-        # O vr_exporter.py roda o photon_client em janelas de 12 s, escreve uma linha por
-        # janela no log e publica a última em :9200/metrics. Pausa e retomada com
+        # O vr_exporter.py roda o photon_client numa sessão contínua, escreve uma linha por
+        # janela de 12 s no log e publica a última em :9200/metrics. Pausa e retomada com
         # kubectl exec ... -c vr-client -- sh -c 'kill -USR1 1' (pausa) / 'kill -USR2 1' (retoma);
         # o kill é o do sh, porque a imagem slim não tem o programa kill.
         # Sem rota manual: o cliente usa --bind com o IP do uesimtun0, e a regra

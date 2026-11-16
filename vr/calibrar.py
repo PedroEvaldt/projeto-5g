@@ -59,7 +59,7 @@ FOLGA = {"banda": 15, "cpu": 0.4}                          # o topo de cada sér
 
 PAUSA_S = 3              # pausa com a UPF na folga: a sessão antiga expira no servidor (2 s) e a fila esvazia
 ASSENTAR_BANDA_S = 2     # a anotação vale em menos de 1 s (Fase 1), mas o Calico não devolve status
-CICLO_S = 13             # uma janela do exporter: 12 s de cliente mais ~1 s até a próxima
+CICLO_S = 13             # uma janela do exporter (12 s na sessão contínua; ~12,7 s até 16/11/2026), com folga
 CAMPO = re.compile(r'(\w+)=("[^"]*"|\S+)')                 # chave=valor da linha [VR]
 
 COLUNAS = ["recurso", "valor", "unidade", "repeticao", "medida", "janela", "hora", "tipo",

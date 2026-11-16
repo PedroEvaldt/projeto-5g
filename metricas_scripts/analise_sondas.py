@@ -45,7 +45,7 @@ def janelas(pasta):
     """As janelas normais de uma execução, com o início e o fim no relógio do pod e o limite do net."""
     j = pd.read_csv(pasta / "qoe_vr_timeseries.csv")
     j["fim"] = pd.to_datetime(j["Timestamp_Pod"], utc=True).astype("int64") / 1e9
-    dur = j["fim"].diff()[j["Window_Type"] == "normal"].median()     # ~12,7 s: a janela do exporter
+    dur = j["fim"].diff()[j["Window_Type"] == "normal"].median()     # a janela do exporter: 12 s (~12,7 s até 16/11/2026)
     j = j[(j["Window_Type"] == "normal") & j["Net_p95_ms"].notna()].copy()
     sla = calibracao_vr.ler(pasta)["sla"]
     j["inicio"] = j["fim"] - dur

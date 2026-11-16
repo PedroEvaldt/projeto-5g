@@ -2,9 +2,15 @@
 """
 Exporter da VR: processo principal (PID 1) do container vr-client do UE de VR.
 
-Roda o photon_client em janelas, pelo pp_launcher (para ter o buffer forçado), escreve uma
-linha de log por janela no formato do player DASH ([T+...s] [VR] ...) e publica a última
-janela em /metrics, no formato texto do Prometheus. Só usa a biblioteca padrão.
+Roda o photon_client pelo pp_launcher (para ter o buffer forçado), escreve uma linha de log
+por janela no formato do player DASH ([T+...s] [VR] ...) e publica a última janela em
+/metrics, no formato texto do Prometheus. Só usa a biblioteca padrão.
+
+A sessão é contínua (desde 17/11/2026): um cliente só, do começo ao fim de cada trecho ativo,
+que imprime um resumo a cada VR_WINDOW_S segundos (--report-interval). Antes, o exporter
+subia um cliente novo a cada janela (sessão e numeração novas, ~0,7 s sem tráfego entre uma e
+outra, e 2 s de aquecimento fora da medida em cada uma). O aquecimento agora só existe no
+começo da sessão.
 
 health mede o instrumento, não a rede: 1 quando o cliente rodou com carimbo do kernel, buffer
 forçado e sem descarte nos sockets do pod. Perda e continuidade ficam fora, porque são o
@@ -14,8 +20,8 @@ o processo sai com código 1 e o Kubernetes reinicia o container, em vez de o /m
 servindo a última janela.
 
 Sinais (kubectl exec ... -c vr-client -- sh -c 'kill -USR1 1'; o kill é o do sh, a imagem slim não tem o programa):
-  USR1  pausa: encerra a janela em andamento (descartada) e para de gerar tráfego
-  USR2  retoma
+  USR1  pausa: encerra a sessão (a janela em andamento é descartada) e para de gerar tráfego
+  USR2  retoma, com uma sessão nova
   TERM  encerra o cliente e sai (sem tratador, o PID 1 ignoraria o TERM)
 """
 
@@ -31,6 +37,7 @@ import threading
 import time
 import traceback
 import urllib.request
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 LANCADOR = os.environ.get("VR_LAUNCHER", "/opt/vr/pp_launcher.py")
@@ -47,7 +54,7 @@ valores = {"vr_health_ok": 0, "vr_paused": 0}
 trava = threading.Lock()
 pausado = threading.Event()
 inicio = time.time()
-cliente = None                                             # processo da janela em andamento
+cliente = None                                             # processo da sessão em andamento
 
 
 def pausar(*_):
@@ -97,6 +104,44 @@ def servidor_no_ar():
         return False
 
 
+def janela(s):
+    """Uma janela do cliente (o JSON de um intervalo): a linha [VR] do log e os números do /metrics.
+    Devolve False se a janela veio sem nenhum quadro."""
+    t = time.time() - inicio
+    h = s["health"]
+    ok = int(bool(h["rx_timestamp_kernel"]) and (h["sock_rcvbuf_bytes"] or 0) >= RCVBUF_FORCADO
+             and not h["dl_sock_drops"] and not h["udp_rcvbuf_errors"])
+
+    if not s["frames_in_stats"]:
+        # Nenhum quadro completo na janela. Com o servidor de pé, é a fatia sem serviço (QoE);
+        # com o servidor fora do ar, é falha do testbed.
+        if not servidor_no_ar():
+            print(f"[T+{t:.1f}s] [VR] servidor_fora_do_ar health=0", flush=True)
+            definir(vr_health_ok=0, vr_paused=0)
+            return False
+        print(f"[T+{t:.1f}s] [VR] sem_quadros loss_pct=100 cont_pct=0 health={ok}", flush=True)
+        definir(vr_loss_pct=100.0, vr_continuity_pct=0.0, vr_health_ok=ok, vr_paused=0)
+        return False
+
+    ms = lambda bloco, q: round(s[bloco][q] / 1000, 2)
+    print(f"[T+{t:.1f}s] [VR] m2p_p95_ms={ms('m2p_us', 'p95')} net_p95_ms={ms('net_rtt_us', 'p95')} "
+          f"hold_p95_ms={ms('hold_us', 'p95')} loss_pct={s['dl_packet_loss_pct']} "
+          f"cont_pct={s['dl_continuity_pct']} thr_mbps={s['dl_throughput_mbps']} "
+          f"ctx_inv={h['ctxt_switches_involuntary']} health={ok}", flush=True)
+    definir(vr_m2p_p95_us=s["m2p_us"]["p95"], vr_m2p_p99_us=s["m2p_us"]["p99"],
+            vr_net_p95_us=s["net_rtt_us"]["p95"], vr_hold_p95_us=s["hold_us"]["p95"],
+            vr_loss_pct=s["dl_packet_loss_pct"], vr_continuity_pct=s["dl_continuity_pct"],
+            vr_throughput_mbps=s["dl_throughput_mbps"], vr_health_ok=ok, vr_paused=0)
+    return True
+
+
+def tunel_mudou(ip):
+    try:
+        return ip_da_interface(IFACE) != ip
+    except OSError:
+        return True
+
+
 def medir():
     global cliente
     while True:
@@ -110,54 +155,41 @@ def medir():
             time.sleep(1)                                  # túnel ainda não subiu
             continue
 
-        cliente = subprocess.Popen(
+        # Uma sessão: o cliente roda até ser encerrado (--duration 0) e imprime uma linha JSON por janela.
+        cliente = p = subprocess.Popen(
             ["python3", "-u", LANCADOR, "photon_client.py", "--server", SERVIDOR, "--bind", ip,
-             "--duration", JANELA, "--warmup", AQUECIMENTO, "--label", FATIA],
+             "--duration", "0", "--report-interval", JANELA, "--warmup", AQUECIMENTO, "--label", FATIA],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        erros = deque(maxlen=1)                            # a última linha do stderr, para o log de falha
+        threading.Thread(target=lambda: erros.extend(l.strip() for l in p.stderr if l.strip()), daemon=True).start()
         if pausado.is_set():                               # USR1 chegou entre a checagem e o Popen
-            cliente.terminate()
-        saida, erro = cliente.communicate()
-        rc, cliente = cliente.returncode, None
-        if pausado.is_set():                               # janela interrompida pela pausa: descartada
+            p.terminate()
+        tunel_novo = False
+        for linha in p.stdout:
+            if pausado.is_set():                           # janela que fechou junto com a pausa: descartada
+                break
+            try:
+                com_quadros = janela(json.loads(linha))
+            except (json.JSONDecodeError, KeyError, TypeError):
+                continue                                   # linha que não é uma janela
+            if not com_quadros and tunel_mudou(ip):
+                # O cliente está preso ao IP de um túnel que caiu ou foi refeito: só uma sessão nova volta a medir.
+                tunel_novo = True
+                p.terminate()
+                break
+        rc, cliente = p.wait(), None
+        if pausado.is_set():
+            continue
+        if tunel_novo:
+            print("[vr_exporter] o túnel mudou; sessão nova", flush=True)
             continue
 
+        # O cliente saiu sozinho (DNS, erro no código, o túnel caiu...): falha do instrumento, não da fatia.
         t = time.time() - inicio
-        try:
-            s = json.loads(saida)
-        except json.JSONDecodeError:
-            s = None
-        if s is None:
-            # O cliente não chegou a medir (DNS, erro no código...): falha do instrumento, não da fatia.
-            msg = (erro.strip().splitlines() or ["sem saída"])[-1]
-            print(f'[T+{t:.1f}s] [VR] falha_cliente rc={rc} erro="{msg}" health=0', flush=True)
-            definir(vr_health_ok=0, vr_paused=0)
-            time.sleep(1)                                  # não entrar em laço apertado se falhar de cara
-            continue
-
-        h = s["health"]
-        ok = int(bool(h["rx_timestamp_kernel"]) and (h["sock_rcvbuf_bytes"] or 0) >= RCVBUF_FORCADO
-                 and not h["dl_sock_drops"] and not h["udp_rcvbuf_errors"])
-
-        if not s["frames_in_stats"]:
-            # Nenhum quadro completo na janela. Com o servidor de pé, é a fatia sem serviço (QoE);
-            # com o servidor fora do ar, é falha do testbed.
-            if not servidor_no_ar():
-                print(f"[T+{t:.1f}s] [VR] servidor_fora_do_ar health=0", flush=True)
-                definir(vr_health_ok=0, vr_paused=0)
-                continue
-            print(f"[T+{t:.1f}s] [VR] sem_quadros loss_pct=100 cont_pct=0 health={ok}", flush=True)
-            definir(vr_loss_pct=100.0, vr_continuity_pct=0.0, vr_health_ok=ok, vr_paused=0)
-            continue
-
-        ms = lambda bloco, q: round(s[bloco][q] / 1000, 2)
-        print(f"[T+{t:.1f}s] [VR] m2p_p95_ms={ms('m2p_us', 'p95')} net_p95_ms={ms('net_rtt_us', 'p95')} "
-              f"hold_p95_ms={ms('hold_us', 'p95')} loss_pct={s['dl_packet_loss_pct']} "
-              f"cont_pct={s['dl_continuity_pct']} thr_mbps={s['dl_throughput_mbps']} "
-              f"ctx_inv={h['ctxt_switches_involuntary']} health={ok}", flush=True)
-        definir(vr_m2p_p95_us=s["m2p_us"]["p95"], vr_m2p_p99_us=s["m2p_us"]["p99"],
-                vr_net_p95_us=s["net_rtt_us"]["p95"], vr_hold_p95_us=s["hold_us"]["p95"],
-                vr_loss_pct=s["dl_packet_loss_pct"], vr_continuity_pct=s["dl_continuity_pct"],
-                vr_throughput_mbps=s["dl_throughput_mbps"], vr_health_ok=ok, vr_paused=0)
+        msg = erros[-1] if erros else "sem saída"
+        print(f'[T+{t:.1f}s] [VR] falha_cliente rc={rc} erro="{msg}" health=0', flush=True)
+        definir(vr_health_ok=0, vr_paused=0)
+        time.sleep(1)                                      # não entrar em laço apertado se falhar de cara
 
 
 def medir_ou_sair():
