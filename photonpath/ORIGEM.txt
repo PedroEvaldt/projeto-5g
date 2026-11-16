@@ -27,6 +27,13 @@ Alterações em relação ao original
   enc_bytes_last e frames_pose_fallback_total (quadros enviados sem a pose da sessão: render_source=1 não mostra se o render
   está seguindo o cliente, e o ensaio de 09/11/2026 mostrou que isso pode falhar sem aviso). Por quê: o conteúdo do quadro passa a vir do Unity, e o PhotonPath continua cuidando do envio e da medição.
   Sem a opção, o gerador segue sintético, como no original; sem quadro novo por 0,5 s, o servidor também volta ao sintético.
+- src/photon_client.py: opção --report-interval (variável PP_REPORT_S), de 17/11/2026. O cliente mantém UMA sessão e imprime
+  uma linha JSON por intervalo (as chaves do resumo final que descrevem uma janela: perda, vazão, continuidade, m2p, net,
+  hold e health), em vez de um resumo só no fim; com ela, --duration 0 roda até o processo ser encerrado. O intervalo fecha
+  no primeiro pacote de um quadro novo (um quadro dividido contaria como perda nos dois lados) ou, sem tráfego, 0,5 s depois
+  do prazo; a perda conta os quadros desde o fim do intervalo anterior. Por quê: o vr_exporter subia um cliente novo a cada
+  janela de 12 s (sessão e numeração novas, ~0,7 s sem tráfego e 2 s de aquecimento fora da medida), e a VR passa a ser um
+  fluxo contínuo (decisão do Pedro, 16/11/2026). Sem a opção, o cliente se comporta como no original.
 
 Conferir a cópia (da raiz do projeto-5g):
   git clone https://github.com/CarlosMenin/photonpath /tmp/pp      # baixa o repositório original

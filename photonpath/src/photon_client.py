@@ -49,6 +49,7 @@ import bisect
 import csv
 import json
 import os
+import queue
 import random
 import socket
 import struct
@@ -64,6 +65,7 @@ POSE_HDR = struct.Struct("!4sIQQI")
 POSE_PAD = struct.Struct("!I7f")    # --pose-trace: índice da amostra, x y z, qx qy qz qw
 FRAME_HDR = struct.Struct("!4sIQHHQQIII")
 FLAG_BYE = 1
+REPORT_GRACE_NS = 500_000_000       # --report-interval: silence before an empty interval is closed
 
 
 def pct(values, q):
@@ -165,6 +167,12 @@ class Client:
         self.in_window = False
         self.tx_span = 0.0           # how long the uplink actually ran
         self.lport_real = 0
+        # --report-interval: one session, one summary line per interval.
+        self.report_ns = int(args.report_interval * 1e9)
+        self.next_report_ns = None   # when the interval in progress closes
+        self.t_interval_ns = None    # when it opened
+        self.prev_last_seq = None    # last frame_seq of the closed interval
+        self.closed = queue.Queue()  # closed intervals, rx thread -> reporter
 
         if args.pose_hz <= 0:
             sys.exit("--pose-hz must be greater than zero")
@@ -198,15 +206,17 @@ class Client:
         pad = bytes(max(0, a.pose_bytes - POSE_HDR.size))
         seq = 0
         next_t = start = time.perf_counter()
-        end = next_t + a.duration
+        # With --report-interval, --duration 0 means "until killed".
+        end = (next_t + a.duration if a.duration > 0 or not self.report_ns
+               else float("inf"))
         while self.running and time.perf_counter() < end:
             next_t += period
             seq += 1
             t_ns = photon_clock.now_ns()
             if self.trace:
                 # Pelo relógio de parede, e não pelo início deste processo: o
-                # vr_exporter roda o cliente em janelas de 12 s, e o passeio
-                # tem de continuar de uma janela para a outra.
+                # vr_exporter sobe um cliente novo a cada entrada da VR, e o
+                # passeio tem de continuar de uma sessão para a outra.
                 times, pads, loop = self.trace
                 pad = pads[bisect.bisect_right(times, t_ns / 1e9 % loop) - 1]
             pkt = POSE_HDR.pack(POSE_MAGIC, self.sid, seq, t_ns, 0) + pad
@@ -241,6 +251,12 @@ class Client:
             try:
                 n, ancdata, _, _ = recv_into(view, self.ancbuf)
             except (BlockingIOError, socket.timeout):
+                # Nothing arriving: the interval still has to close, or a
+                # dead flow would simply stop being reported.
+                if self.report_ns:
+                    t_ns = photon_clock.now_ns()
+                    if t_ns >= self.next_report_ns + REPORT_GRACE_NS:
+                        self.close_interval(t_ns)
                 continue
             except OSError:
                 return
@@ -259,6 +275,9 @@ class Client:
             if self.t0_ns is None:
                 self.t0_ns = now_ns
                 self.t_window_ns = now_ns + warmup_ns
+                if self.report_ns:
+                    self.t_interval_ns = self.t_window_ns
+                    self.next_report_ns = self.t_window_ns + self.report_ns
             self.pkt_cnt = cnt
             self.whole_run.add(fseq, n, now_ns, ovfl)
             # The measurement window starts at the first frame that is
@@ -274,6 +293,12 @@ class Client:
                 elif fseq > self.cutoff_seq:
                     self.in_window = True
             if self.in_window:
+                # Close the interval on the first packet of a NEW frame, for
+                # the same reason the window opens on a whole frame: a frame
+                # split between two intervals would count as loss in both.
+                if (self.report_ns and now_ns >= self.next_report_ns
+                        and fseq > self.window.last_seq):
+                    self.close_interval(now_ns)
                 self.window.add(fseq, n, now_ns, ovfl)
 
             st = self.frames.get(fseq)
@@ -300,6 +325,108 @@ class Client:
                 for old in sorted(self.frames)[:-32]:
                     self.frames.pop(old, None)
                     self.frames_partial += 1
+
+    # ----------------------------------------------------- report intervals
+    def close_interval(self, t_ns):
+        """Called from the rx thread only. Swaps the window and the samples
+        for fresh ones and hands the closed interval to the reporter thread,
+        so the summary is never computed on the receive path."""
+        w, self.window = self.window, Window()
+        with self.lock:
+            samples, self.samples = self.samples, []
+        partial, self.frames_partial = self.frames_partial, 0
+        self.closed.put((w, samples, partial, self.pkt_cnt,
+                         self.prev_last_seq, self.t_interval_ns, t_ns))
+        if w.first_seq is not None:
+            self.prev_last_seq = w.last_seq
+        self.t_interval_ns = t_ns
+        self.next_report_ns += self.report_ns
+        if self.next_report_ns <= t_ns:
+            self.next_report_ns = t_ns + self.report_ns
+
+    def report_loop(self, snmp0, ctx0, drift0, drops0):
+        """One compact JSON line on stdout per closed interval, with the keys
+        of the final summary that describe a window."""
+        while True:
+            w, samples, partial, pkt_cnt, prev_last, t0_ns, t1_ns = \
+                self.closed.get()
+            snmp1 = photon_clock.udp_errors()
+            ctx1 = photon_clock.ctxt_switches()
+            drift1 = photon_clock.clock_drift_us()
+            drops1 = photon_clock.udp_drops(self.lport_real)
+
+            def d(k):
+                if not snmp0 or not snmp1 or k not in snmp0 or k not in snmp1:
+                    return None
+                return snmp1[k] - snmp0[k]
+
+            health = {
+                "rx_timestamp_kernel": self.ts_kernel,
+                "sock_rcvbuf_bytes": self.rcvbuf,
+                "dl_sock_drops": (None if drops0 is None or drops1 is None
+                                  else drops1 - drops0),
+                "dl_sock_overflow_pkts": (w.overflow if self.has_ovfl
+                                          else None),
+                "udp_rcvbuf_errors": d("RcvbufErrors"),
+                "udp_in_errors": d("InErrors"),
+                "ctxt_switches_involuntary": (
+                    None if ctx0 is None or ctx1 is None else ctx1 - ctx0),
+                "clock_drift_us": round(
+                    ((drift1[0] - drift0[0]) - (drift1[1] - drift0[1]))
+                    / 1000.0, 1),
+            }
+            snmp0, ctx0, drift0, drops0 = snmp1, ctx1, drift1, drops1
+
+            nominal = max(1e-9, (t1_ns - t0_ns) / 1e9)
+            # Frames expected since the END of the previous interval, so a
+            # frame lost whole at the boundary is still counted. The first
+            # interval has no previous one and starts at its own first frame.
+            expected = 0
+            if w.first_seq is not None:
+                base = w.first_seq if prev_last is None else prev_last + 1
+                expected = max(0, w.last_seq - base + 1)
+            pkts_expected = expected * (pkt_cnt or 1)
+            loss = 0.0
+            if pkts_expected:
+                loss = max(0.0, 1 - w.rx_packets / pkts_expected) * 100
+            if prev_last is None:
+                # First interval: drop the warmup frames, as the final
+                # summary does.
+                samples = ([] if w.first_seq is None else
+                           [s for s in samples
+                            if s["frame_seq"] >= w.first_seq])
+            m2p = sorted(s["m2p_us"] for s in samples)
+            net = sorted(s["net_us"] for s in samples)
+            hold = sorted(float(s["hold_us"]) for s in samples)
+
+            def block(v):
+                return {"min": pct(v, 0), "p50": pct(v, 0.50),
+                        "p95": pct(v, 0.95), "p99": pct(v, 0.99),
+                        "max": pct(v, 1.0),
+                        "mean": round(sum(v) / len(v), 1) if v else None}
+
+            print(json.dumps({
+                "label": self.args.label,
+                "t_start_ns": t0_ns,
+                "t_end_ns": t1_ns,
+                "frames_in_stats": len(samples),
+                "frames_partial": partial,
+                "dl_packet_loss_pct": round(loss, 4),
+                "dl_throughput_mbps": round(w.rx_bytes * 8 / nominal / 1e6, 3),
+                "dl_continuity_pct": round(
+                    min(100.0, w.span_s / nominal * 100), 2),
+                "window": {
+                    "nominal_s": round(nominal, 3),
+                    "span_s": round(w.span_s, 3),
+                    "frames_expected": expected,
+                    "dl_packets_rx": w.rx_packets,
+                    "dl_packets_expected": pkts_expected,
+                },
+                "m2p_us": block(m2p),
+                "net_rtt_us": block(net),
+                "hold_us": block(hold),
+                "health": health,
+            }), flush=True)
 
     def record(self, fseq, now_ns, st):
         _, cnt, t_pose_ns, hold_us, render_us, ai_us, pose_seq = st
@@ -535,6 +662,14 @@ class Client:
         drift0 = photon_clock.clock_drift_us()
         drops0 = photon_clock.udp_drops(self.lport_real)
 
+        if self.report_ns:
+            # Until the first packet arrives there is no window; the clock
+            # for "nothing arrived at all" starts here.
+            self.t_interval_ns = photon_clock.now_ns()
+            self.next_report_ns = (self.t_interval_ns + int(a.warmup * 1e9)
+                                   + self.report_ns)
+            threading.Thread(target=self.report_loop, daemon=True,
+                             args=(snmp0, ctx0, drift0, drops0)).start()
         rx = threading.Thread(target=self.rx_loop, daemon=True)
         rx.start()
         t0 = time.perf_counter()
@@ -547,6 +682,8 @@ class Client:
         rx.join(timeout=1.0)
         wall = time.perf_counter() - t0
         self.flush_partials()
+        if self.report_ns:
+            return 0                # the interval lines were the output
 
         if a.csv:
             self.write_csv(a.csv)
@@ -591,6 +728,11 @@ def parse_args(argv):
                    default=envd("PP_WARMUP", 5.0, float),
                    help="initial seconds dropped from the summary (from ALL "
                         "the metrics: latency, loss and throughput)")
+    p.add_argument("--report-interval", type=float,
+                   default=envd("PP_REPORT_S", 0.0, float),
+                   help="keep ONE session and print one JSON line per interval "
+                        "of this many seconds, instead of a single summary at "
+                        "the end. With it, --duration 0 runs until killed")
     p.add_argument("--pose-hz", type=float,
                    default=envd("PP_POSE_HZ", 250.0, float))
     p.add_argument("--pose-bytes", type=int,
