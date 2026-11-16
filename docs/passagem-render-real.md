@@ -265,7 +265,7 @@ Resultado completo em `docs/render-real.md`. Em resumo:
 - **Validação (15 execuções, 15 válidas):** a `hvr_l0` e a `scvr_l2` ficaram dentro da variação da Fase 8. O `m2p`
   subiu ~46 ms nas três (o render está todo no `hold`).
 - **A `hvr_l2` caiu de 97,9% para 79,6%** das janelas no SLA (p = 0,03), sempre pelo `net`, quase só depois dos
-  671 s. Nesse trecho os três vídeos tocam e o gold sobe para 14–15 Mbps.
+  671 s. Nesse trecho o silver volta (e o bronze, aos 781 s) e o gold sobe para 14–15 Mbps.
 - **Controle (16/11, 5 × `hvr_l2`, servidor sintético no `metallica`):** 77,8%, igual ao render (p = 0,82). Fora do
   `m2p`, nada difere.
 - **Conclusão:** a queda é da topologia (servidor no `metallica` e/ou UEs no `molejo`), e o render não muda o que o

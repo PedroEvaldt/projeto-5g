@@ -153,8 +153,8 @@ Tabelas completas em `metricas_scripts/resultados/fase9_analise/tabelas.md`.
   0,000 (CPU e banda no piso) ou de 0,001 (vazão), e a CPU da SC-VR aparece "0 de 5 na faixa" pelo arredondamento de
   0,280. Nada disso é diferença de verdade.
 - **A `hvr_l2` caiu, e só pelo `net`.** As janelas reprovaram todas por `net` (perda, vazão e continuidade passaram),
-  e quase todas no último terço do teste. Aos 671 s o silver volta, os três vídeos passam a tocar e o gold, a fatia de maior
-  prioridade no leilão, sobe para 14–15 Mbps. A partir daí o `net_p95` vai a 8–10 ms e cai aos poucos:
+  e quase todas no último terço do teste. Aos 661 s o silver volta (o bronze só aos 781 s), e o gold, a fatia de
+  maior prioridade no leilão, sobe para 14–15 Mbps. A conta usa 671 s, o início da fase seguinte no resumo da execução. A partir daí o `net_p95` vai a 8–10 ms e cai aos poucos:
 
 | `hvr_l2` | Fase 8 (30) | Fase 9 (5) | Controle (5) |
 | --- | --- | --- | --- |
