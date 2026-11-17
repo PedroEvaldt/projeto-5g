@@ -10,3 +10,4 @@ credentials.json
 tests_configs/_run_*.yaml
 CLAUDE.md
 __pycache__/
+scripts/tmp/

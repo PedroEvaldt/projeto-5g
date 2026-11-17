@@ -65,7 +65,7 @@ Detalhes que importam para ler os números:
 Os ConfigMaps `photonpath` e `vr-exporter` têm de ser atualizados e o UE de VR recriado:
 
 ```bash
-python3 photonpath/tools/gen-configmap.py --namespace pfsevaldt --out scripts/tmp/photonpath-cm.yaml && kubectl apply -f scripts/tmp/photonpath-cm.yaml   # ConfigMap com o photon_client novo
+mkdir -p scripts/tmp && python3 photonpath/tools/gen-configmap.py --namespace pfsevaldt --out scripts/tmp/photonpath-cm.yaml && kubectl apply -f scripts/tmp/photonpath-cm.yaml   # ConfigMap com o photon_client novo
 kubectl create configmap vr-exporter -n pfsevaldt --from-file=vr/vr_exporter.py --dry-run=client -o yaml | kubectl apply -f -                           # ConfigMap com o exporter novo
 venv/bin/python scripts/pfcp_upf.py reiniciar-ue ue-vr-07                                                                                               # recria o UE de VR, que passa a usar os dois
 kubectl logs -n pfsevaldt deploy/ue-vr-07 -c vr-client --tail=5                                                                                         # uma linha [VR] a cada 12 s, com health=1
@@ -84,7 +84,7 @@ Fase 9 (`molejo`) com a de 08/11, sem ninguém notar (`docs/render-real.md`, "O 
 | Arquivo | O que mudou |
 | --- | --- |
 | `client_scripts/videoclients-script.sh`, `vrclients-script.sh` e `iperfclients-script.sh` | `image: free5gc/ueransim@sha256:da47add1…` (gNB e UE) no lugar de `:latest` |
-| `scripts/tmp/video-slice01.sh` a `03.sh` | o mesmo, nas cópias que o `build_testbeds.sh` gera e versiona |
+| `scripts/tmp/video-slice01.sh` a `03.sh` | o mesmo, nas cópias que o `build_testbeds.sh` gera (fora do git desde 17/11/2026: o build as refaz a cada montagem) |
 
 - **No cluster, nada muda agora:** os 4 UEs no ar já usam essa versão (conferido em 17/11). Os pods novos a pedem pelo
   digest; o `molejo` já a tem, e outro nó a baixa do Docker Hub.
