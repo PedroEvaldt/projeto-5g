@@ -150,7 +150,7 @@ spec:
       containers:
         # GNB
         - name: gnb
-          image: free5gc/ueransim:latest
+          image: free5gc/ueransim@sha256:da47add194611bb9da3a1d4ec6c8054b47a49a775e28470423820342340768e6   # versão fixa (criada em 08/11/2026, a da Fase 9): a tag latest muda sem aviso
           securityContext:
             capabilities:
               add: ["NET_ADMIN"]
@@ -175,7 +175,7 @@ spec:
         
         # UE
         - name: ue
-          image: free5gc/ueransim:latest
+          image: free5gc/ueransim@sha256:da47add194611bb9da3a1d4ec6c8054b47a49a775e28470423820342340768e6   # versão fixa (criada em 08/11/2026, a da Fase 9): a tag latest muda sem aviso
           securityContext:
             privileged: true
             capabilities:

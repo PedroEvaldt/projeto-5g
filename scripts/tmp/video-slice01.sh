@@ -164,7 +164,7 @@ spec:
       containers:
         # 1. Container da Torre (gNB)
         - name: gnb
-          image: free5gc/ueransim:latest
+          image: free5gc/ueransim@sha256:da47add194611bb9da3a1d4ec6c8054b47a49a775e28470423820342340768e6   # versão fixa (criada em 08/11/2026, a da Fase 9): a tag latest muda sem aviso
           imagePullPolicy: IfNotPresent
           securityContext:
             capabilities:
@@ -191,7 +191,7 @@ spec:
         
         # 2. Container do Celular (UE)
         - name: ue
-          image: free5gc/ueransim:latest
+          image: free5gc/ueransim@sha256:da47add194611bb9da3a1d4ec6c8054b47a49a775e28470423820342340768e6   # versão fixa (criada em 08/11/2026, a da Fase 9): a tag latest muda sem aviso
           imagePullPolicy: IfNotPresent
           securityContext:
             privileged: true
