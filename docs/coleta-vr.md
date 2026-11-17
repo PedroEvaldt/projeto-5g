@@ -53,7 +53,7 @@ O cluster (o `blacksabbath`, os pods e o Prometheus) está **187,5 a 187,7 s à 
 
 - **O leilão não é afetado.** Os agentes perguntam ao Prometheus "quanto está agora?", sem horário.
 - **O coletor da VR** mede a diferença com um `kubectl exec` no pod e a guarda em `vr_relogio.txt`. O erro é de ±0,1 s.
-- **O `fetch_prometheus.py` pedia a janela da execução pelo relógio da ledzeppelin.** Por isso, o `infra_timeseries.csv` saía **~3 min deslocado e sem os últimos ~3 min** do teste. As planilhas do `csv_planilhas.py` são as únicas que leem esse arquivo, e herdaram o erro.
+- **O `fetch_prometheus.py` pedia a janela da execução pelo relógio da ledzeppelin.** Por isso, o `infra_timeseries.csv` saía **~3 min deslocado e sem os últimos ~3 min** do teste. As planilhas do `csv_planilhas.py` (apagado em 17/11/2026) eram as únicas que liam esse arquivo, e herdaram o erro.
   - Na `exec01` (14/10), só 53% das amostras batiam com os pausa/volta dos eventos. Deslocando ~3,5 min, 98,6% batiam.
   - Corrigido: o script pergunta a hora ao Prometheus (`time()`) e pede a janela no relógio dele. Na `fase4_exec02`, 97,7% batem sem ajuste, e o arquivo vai até 900 s.
   - Os `infra_timeseries.csv` gerados antes da correção continuam errados. Só podem ser refeitos enquanto o Prometheus guardar os dados (15 dias, por padrão).

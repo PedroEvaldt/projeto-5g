@@ -1,1 +1,0 @@
-Temos uma emergência de segurança pública rolando no slice bronze. Preciso que o bronze receba prioridade máxima absoluta para garantir a transmissão de vídeo das câmeras policiais. Simultaneamente, reduza drasticamente a prioridade do gold e do silver para evitar qualquer gargalo.

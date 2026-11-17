@@ -4,7 +4,7 @@ Gera as duas figuras do artigo (Smart-City e Hierarchical Slicing) a partir
 dos CSVs brutos por execução (qoe_timeseries.csv, auction_history.csv,
 test_events.csv), agregando as 30 execuções por período de 30s.
 
-Este arquivo é standalone: NÃO importa nem altera csv_planilhas.py.
+Este arquivo é standalone (o csv_planilhas.py, que exportava para o Google Sheets, foi apagado em 17/11/2026).
 A função `agregar_dados_cenario` replica a mesma lógica de agregação já
 validada (mesma usada no csv_graficos_ieee.py), só a parte de PLOTAGEM foi
 redesenhada.

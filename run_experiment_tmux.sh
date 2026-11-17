@@ -1,7 +1,7 @@
 #!/bin/bash
 # =========================================================================
 # Roda UMA execução do experimento numa sessão tmux (funciona por SSH, sem
-# interface gráfica). Mesma sequência e mesmos atrasos do run_experiment.sh.
+# interface gráfica). Mesma sequência e mesmos atrasos do antigo run_experiment.sh (apagado em 17/11/2026).
 #
 # Uso (da raiz do repositório):
 #   ./run_experiment_tmux.sh tests_configs/test_config.yaml exec01
