@@ -87,6 +87,7 @@ Todas as configurações saem do mesmo código; muda só o YAML. Sem a VR (`--se
 | 7 | [`llm-vr.md`](docs/llm-vr.md) | o LLM com a VR (L2 × L3) |
 | 8 | [`experimentos.md`](docs/experimentos.md) | as 150 execuções: protocolo, regras de descarte e resultados |
 | 9 | [`render-real.md`](docs/render-real.md) | o servidor de VR com o modelo 3D renderizado de verdade (Unity com GPU): para a rede e o leilão, igual ao sintético; só o `m2p` muda (~13 → ~59 ms) |
+| 10 | [`ambiente-continuo.md`](docs/ambiente-continuo.md) | o ambiente depois da Fase 9: só as `upf1` a `upf4`, a VR em sessão contínua e o UERANSIM com versão fixa (sem experimentos novos) |
 
 ## Como rodar
 
