@@ -28,8 +28,14 @@ UEs (`molejo`), provocada pelo player de vídeo do gold.
 - **O Prometheus** mostra o `molejo` com os núcleos disputados: com o gold a 15 Mbps, o Chrome dele gasta ~4 dos 12
   núcleos, e o UE e o gNB da VR (UERANSIM, no mesmo nó) esperam na fila do escalonador. A `upf4` e o `wb-fibre-01`
   ficam iguais nas janelas boas e ruins.
-- **É correlação, não prova.** O teste que prova (reservar CPU ao `ue-vr-07` e repetir) não foi feito: o Pedro decidiu
-  parar aqui (16/11).
+- **O `molejo` e o `blacksabbath` têm o mesmo hardware, mas não o mesmo software** (conferência de 17/11). A Fase 8
+  rodou com uma versão do UERANSIM (o simulador do UE e do gNB, por onde passa o túnel), e a Fase 9 com outra: a imagem
+  `latest` mudou entre a montagem de um nó e a do outro. Com a mesma carga, o kernel do `molejo` sofre mais. Nó e
+  versão mudaram juntos, e os dados não separam os dois. A versão ficou fixa desde então (`docs/ambiente-continuo.md`).
+- **É correlação, não prova.** Os testes que provam (prioridade de CPU ao `ue-vr-07`; o UERANSIM da Fase 8 no
+  `molejo`) não foram feitos: o Pedro decidiu parar na correlação (16/11) e não rodar mais experimentos por ora (17/11).
+- **Para o texto:** a queda é uma limitação do testbed (UEs e gNBs simulados no mesmo nó que os players de vídeo), não
+  do leilão nem do render. Há um parágrafo pronto na seção "Como descrever no texto".
 
 ## Ambiente
 
@@ -40,6 +46,9 @@ UEs (`molejo`), provocada pelo player de vídeo do gold.
   o tempo de render e o `m2p` mudam.
 - UEs, gNBs e o `dash-server` no `molejo` desde 09/11. Na Fase 8, ficavam no `blacksabbath`, junto com o servidor de VR.
   A `upf4` no `wb-fibre-01`, como na Fase 8.
+- UERANSIM: as Fases 8 e 9 pediram a mesma imagem (`free5gc/ueransim:latest`), mas ela mudou entre as duas. O
+  `blacksabbath` tinha a criada em 19/10/2026 (digest `8215d043…`); o `molejo` baixou a de 08/11 (`da47add1…`) em 09/11.
+  kubelet, containerd e Ubuntu também diferem (1.34.10 × 1.34.13, 2.3.3 × 2.4.2, 24.04.4 × 24.04.5).
 - O cliente de VR (`ue-vr-07`) manda a pose do passeio gravado pelo museu (`vr/passeio.csv`, 2 min 16 s, em laço). O
   `unity-render` desenha cada quadro nessa pose e o codifica; o `photon-server` manda o quadro codificado no lugar do
   payload sintético, no mesmo perfil de pacotes (60 quadros/s × 14 pacotes de 1200 B).
@@ -137,6 +146,27 @@ cd metricas_scripts
 ../venv/bin/python analise_sondas.py resultados/fase9m_sonda resultados/fase9m/hvr_l2          # sondas × janelas da VR -> fase9m_sonda/janelas.csv
 ../venv/bin/python t0_execucoes.py fase8 "resultados/hvr_l2/*/qoe_vr_timeseries.csv" fase9m "resultados/fase9m/hvr_l2/*/qoe_vr_timeseries.csv" \
     | ../venv/bin/python prom_cpu_no_hvr_l2.py > resultados/fase9m_prom/prom_fases.csv          # CPU do nó dos UEs por execução, do Prometheus (na ledzeppelin)
+```
+
+### Conferência dos dois nós (17/11/2026)
+
+O `molejo` esperava o dobro do `blacksabbath` com a mesma carga, e os dois têm a mesma especificação. Para achar a
+diferença, sem rodar nada novo:
+
+- **O nó núcleo a núcleo** (`prom_nucleos_hvr_l2.py`), nas 46 execuções `hvr_l2`: as 30 da Fase 8, as 15 do `molejo` e
+  a `hvrl2c_01` do ambiente novo (`docs/ambiente-continuo.md`). Frequência real, temperatura, núcleo mais ocupado, como
+  os pacotes de rede se dividem entre os núcleos, softnet squeezed e a espera do núcleo que mais espera. O script
+  também grava a versão (digest) do UERANSIM de cada execução.
+- **O hardware e as versões dos dois nós**, do Prometheus, no horário de uma execução de cada: núcleos físicos,
+  memória e placas de rede (node-exporter); kubelet, containerd, Ubuntu e as imagens dos containers
+  (`kube_node_info` e `kube_pod_container_info`).
+
+```bash
+cd metricas_scripts
+../venv/bin/python t0_execucoes.py fase8 "resultados/hvr_l2/*/qoe_vr_timeseries.csv" fase9 "resultados/fase9/hvr_l2/*/qoe_vr_timeseries.csv" \
+    fase9s "resultados/fase9s/hvr_l2/*/qoe_vr_timeseries.csv" fase9m "resultados/fase9m/hvr_l2/*/qoe_vr_timeseries.csv" \
+    fase10 "resultados/fase10_teste/hvr_l2/*/qoe_vr_timeseries.csv" \
+    | ../venv/bin/python prom_nucleos_hvr_l2.py > resultados/fase9m_prom/prom_nucleos.csv      # o nó dos UEs núcleo a núcleo e o UERANSIM, por execução (na ledzeppelin)
 ```
 
 ## Resultados
@@ -299,13 +329,52 @@ Comparando as 45 execuções `hvr_l2` no trecho final (791 a 901 s, com o gold a
 
 - **A disputa de CPU já existia na Fase 8**, mas pela metade: a VR ficava logo abaixo do limite (10 das 30 execuções
   passaram do limite depois dos 671 s, 4,4% das janelas).
-- **O `molejo` espera o dobro com a mesma carga.** O motivo não foi achado: mesmo kernel (6.8.0-136), 12 núcleos, mesma
-  frequência máxima (2,4 GHz). O `molejo` ficou com o governador `schedutil`, e a frequência média dele sobe com a carga
-  (1,4 a 2,2 GHz nas medidas); a do `blacksabbath` foi de 1,3 a 2,2 GHz. Não há diferença que explique.
+- **O `molejo` espera o dobro com a mesma carga.** O motivo não está no hardware: mesmo kernel (6.8.0-136), 12 núcleos,
+  mesma frequência máxima (2,4 GHz). O `molejo` ficou com o governador `schedutil`, e a frequência média dele sobe com a
+  carga (1,4 a 2,2 GHz nas medidas); a do `blacksabbath` foi de 1,3 a 2,2 GHz. O que muda está na seção seguinte.
 - **A única execução do `molejo` fora da faixa** é a `hvrl2m_05` (0,55 s/s), em que o gold ficou em ~9,5 Mbps.
 - **O gold no alto não decide sozinho se a VR cruza o limite.** Nas execuções 02 e 04 o gold ficou a 14–15 Mbps e a
   VR terminou em 98 e 100%, mas o ping pelo túnel também subiu (de 1,8 para 6,8 ms): a VR só ficou abaixo dos 4,87 ms. Por
   isso o resultado parece intermitente.
+
+#### O `blacksabbath` e o `molejo`: o que muda (conferência de 17/11/2026)
+
+No trecho final (851 a 901 s, com o gold no alto), mediana das execuções e, entre parênteses, a faixa:
+
+| | `blacksabbath` (Fase 8, 30) | `molejo` (Fase 9 e controles, 15) |
+| --- | --- | --- |
+| Núcleos, memória, placa de rede, kernel | 6 físicos (12 com hyperthreading), 31 GB, `eno1` a 1 Gbit/s, 6.8.0-136 | iguais |
+| Frequência real (média dos núcleos) | 2,2 GHz | 2,2 GHz |
+| Temperatura máxima e throttling por calor | 69 °C, nenhum | 52 °C, nenhum |
+| Pacotes tratados pelo kernel | 21,6 mil/s | 19,9 mil/s |
+| Parte deles no núcleo que trata mais | 54% | 54% |
+| CPU do UE e do gNB do gold (UERANSIM) | 0,26 e 0,27 núcleo | 0,27 e 0,29 núcleo |
+| Softnet squeezed | 2,4/s (1,5 a 3,6) | 12,6/s (2,4 a 17,7) |
+| Espera do núcleo que mais espera | 0,16 s/s (0,12 a 0,22) | 0,38 s/s (0,08 a 0,53) |
+
+O softnet squeezed conta as vezes em que o kernel parou de tratar os pacotes que chegaram porque o tempo do lote
+acabou, com pacotes ainda na fila. Os pacotes da VR passam por essa fila e pelo UE e o gNB do UERANSIM.
+
+- **O hardware é igual, e roda igual.** Mesma frequência, nenhum throttling (o `molejo` é até mais frio), a rede dividida
+  entre os núcleos do mesmo jeito. Não é CPU mais lenta nem placa de rede diferente.
+- **Com a mesma carga, o kernel do `molejo` sofre mais:** ~5 vezes mais squeezed, e o núcleo que mais espera espera mais
+  que o dobro. As faixas quase não se cruzam (o mínimo do `molejo` é a `hvrl2m_05`, com o gold em ~9,5 Mbps).
+- **O software não é igual:**
+
+  | | `blacksabbath` (Fase 8) | `molejo` (Fase 9) |
+  | --- | --- | --- |
+  | UERANSIM (`free5gc/ueransim:latest`) | imagem de 19/10/2026 (`8215d043…`) | imagem de 08/11/2026 (`da47add1…`) |
+  | kubelet / containerd / Ubuntu | 1.34.10 / 2.3.3 / 24.04.4 | 1.34.13 / 2.4.2 / 24.04.5 |
+
+  O UERANSIM mudou porque os manifests pediam a tag `latest` com `imagePullPolicy: IfNotPresent`: cada nó fica com a
+  versão do dia em que a baixou pela primeira vez, e o `molejo` baixou a dele quando os UEs foram para lá (09/11).
+  Todas as 30 execuções da Fase 8 usaram a versão antiga, e todas as 16 do `molejo`, a nova. A versão nova não gasta
+  mais CPU (UE e gNB do gold na tabela acima).
+- **O player do gold gastar mais não explica sozinho.** Na `hvrl2c_01` (ambiente novo, 16/11), ele gastou 3,2 núcleos,
+  menos que na Fase 8 (3,4), e a VR caiu do mesmo jeito no trecho final (40% no SLA). O squeezed ficou em 7,8/s.
+- **O que não dá para separar:** o nó e a versão do UERANSIM mudaram juntos. A diferença pode ser a versão do UERANSIM,
+  as do kubelet, containerd ou Ubuntu, ou uma configuração do nó que o Prometheus não mostra (BIOS, ajustes da placa de
+  rede).
 
 #### O que se conclui, e o que falta
 
@@ -313,10 +382,29 @@ Comparando as 45 execuções `hvr_l2` no trecho final (791 a 901 s, com o gold a
   escalonador; o atraso aparece no túnel 5G; a VR passa do limite do `net`, às vezes.
 - **O leilão não enxerga isso:** ele controla a CPU e a banda das UPFs. Por isso o agente da VR, em 37 de 38 lances
   com o `net` acima do limite, diagnosticava `fora_das_cotas`: a `upf4` tinha CPU e banda de sobra.
-- **O teste que provaria:** reservar CPU ao `ue-vr-07` (ou tirar o player do gold do nó) e repetir 5 × `hvr_l2`
-  (~1 h 30 min). Não foi feito: o Pedro decidiu parar aqui (16/11/2026).
+- **O `molejo` agrava a disputa:** com a mesma carga, o kernel dele trata pior os pacotes e os processos esperam mais.
+  O motivo está no software (UERANSIM, kubelet, containerd ou Ubuntu) ou na configuração do nó, não no hardware.
+- **Os testes que provariam**, cada um com 3 × `hvr_l2` no `molejo`, contra 3 sem mudança (~2 h 30 min no total):
+  - **prioridade de CPU ao `ue-vr-07`**, para o mecanismo. Hoje os pods dos UEs não pedem CPU: são BestEffort, a classe
+    de menor prioridade do nó, e a VR disputa na mesma fila que o player do gold;
+  - **o UERANSIM da Fase 8 no `molejo`**, para saber se a diferença entre os nós é a versão. O digest antigo ainda baixa
+    do Docker Hub (17/11).
+
+  Não foram feitos: o Pedro decidiu parar na correlação (16/11/2026) e não rodar mais experimentos por ora (17/11).
 - Os dados do Prometheus da Fase 8 ficam disponíveis por 30 dias (até ~02/12/2026). Os CSVs desta análise estão em
   `metricas_scripts/resultados/fase9m_prom/`, fora do git.
+
+#### Como descrever no texto
+
+Um parágrafo para a dissertação, com o que os dados sustentam:
+
+> Na Fase 9, o cenário H-VR em L2 ficou abaixo da Fase 8 (de 97,9% para cerca de 80% das janelas com a VR no SLA). O
+> mesmo aconteceu com o servidor de VR sintético da Fase 8, então a queda não vem do render. Ela é uma limitação do
+> testbed: os UEs e os gNBs são simulados pelo UERANSIM no mesmo nó que os players de vídeo, e quando o player da fatia
+> gold toca a 15 Mbps, ele disputa CPU com o UE e o gNB da VR. O atraso aparece no túnel 5G simulado, com a CPU e a
+> banda da UPF da VR folgadas, e por isso o leilão, que reparte esses dois recursos, não tem como corrigi-lo. Numa rede real, cada UE é um
+> aparelho, e essa disputa não existe. Entre as duas fases, o nó dos UEs mudou e, com ele, a versão do UERANSIM; o
+> efeito é maior no nó novo, mas os dados não separam as duas mudanças.
 
 ## Limites
 
@@ -327,8 +415,8 @@ Comparando as 45 execuções `hvr_l2` no trecho final (791 a 901 s, com o gold a
   controle separa (seção "A causa").
 - **A causa não está provada.** Nenhum experimento mexeu na CPU do nó dos UEs. Só dá para afirmar que a espera do
   escalonador no `molejo` sobe junto com o `net` da VR, e que o `molejo` espera o dobro do `blacksabbath` com a
-  mesma carga, sem que eu tenha achado o motivo (mesmo kernel e 12 núcleos nos dois). Foi medido em execuções de
-  ~15 min, não em microssegundos.
+  mesma carga. O hardware dos dois é igual; o software não (a versão do UERANSIM e as do kubelet, containerd e
+  Ubuntu), e o nó e a versão do UERANSIM mudaram juntos. Foi medido em execuções de ~15 min, não em microssegundos.
 - **O segundo controle tem 5 execuções.** A diferença para o primeiro (2 de 5 abaixo da faixa contra 10 de 10) não é
   estatisticamente separável (p = 0,17).
 - **Um render, uma placa e um passeio:** imagem `fase9.2`, a A2 do `metallica`, o passeio pelo museu. Outra placa muda
@@ -348,11 +436,14 @@ Comparando as 45 execuções `hvr_l2` no trecho final (791 a 901 s, com o gold a
   execuções da Fase 8 sobre o leilão continuam valendo com um servidor que renderiza de verdade. O que o sintético
   não representa é o `m2p`.
 - **A Fase 8 deixa de ser referência para a `hvr_l2` neste testbed.** A decisão de 09/11 (mudar os UEs para o `molejo`
-  sem remedir) partiu de os dois nós terem a mesma especificação, mas a `hvr_l2` mudou: o `molejo` espera mais CPU que o
-  `blacksabbath` com a mesma carga, e isso aparece no `net` da VR. Comparações novas precisam de uma referência
-  sintética medida na mesma topologia, como os dois controles.
+  sem remedir) partiu de os dois nós terem a mesma especificação. O hardware é mesmo igual, mas o software não (o
+  UERANSIM mudou de versão junto com o nó), e a `hvr_l2` mudou: o `molejo` espera mais CPU que o `blacksabbath` com a
+  mesma carga, e isso aparece no `net` da VR. Comparações novas precisam de uma referência sintética medida na mesma
+  topologia, como os dois controles.
+- **A versão do UERANSIM ficou fixa** (17/11/2026), a da Fase 9, para não mudar de novo sem aviso
+  (`docs/ambiente-continuo.md`).
 - **O testbed tem uma limitação própria:** os UEs simulados e os players de vídeo dividem o nó, e com o gold a 15 Mbps
   o player disputa CPU com o UE e o gNB da VR. É uma propriedade do testbed, não do leilão nem do render. Se a VR
   precisar de um SLA mais estável, o caminho é reservar CPU ao `ue-vr-07` ou separar os nós (não feito).
-- **Fica em aberto, por decisão do Pedro (16/11/2026):** a investigação parou na correlação. O teste que prova a
-  causa está descrito acima.
+- **Fica em aberto, por decisão do Pedro (16 e 17/11/2026):** a investigação parou na conferência dos dois nós, sem
+  os testes que provam (descritos acima). Sem experimentos novos por ora.

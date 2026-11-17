@@ -4,7 +4,9 @@
 
 **Estado:** plano de 03/11/2026. Fase concluída em 16/11/2026 (etapas 0 a 7); o resultado está em `docs/render-real.md`.
 Depois do fechamento, uma investigação (segundo controle, sondas e Prometheus) achou a causa provável da queda da `hvr_l2`:
-falta de CPU no `molejo`, disputada pelo player do gold (seção "A causa da queda" do `docs/render-real.md`).
+falta de CPU no `molejo`, disputada pelo player do gold (seção "A causa da queda" do `docs/render-real.md`). Em 17/11,
+a conferência dos dois nós achou o UERANSIM em versões diferentes nas Fases 8 e 9; a versão ficou fixa, sem
+experimentos novos.
 O estado, as medidas e as decisões estão em `docs/passagem-render-real.md`. O que mudou em relação a este plano:
 
 - O servidor fica sempre no `metallica` (NVIDIA A2), com `nodeSelector` (decisão do Pedro, 12/11), e os UEs no `molejo`

@@ -1,4 +1,4 @@
-# Passagem: o modelo 3D renderizado no servidor de VR (estado em 16/11/2026, com a investigação da queda)
+# Passagem: o modelo 3D renderizado no servidor de VR (estado em 17/11/2026, com a investigação da queda)
 
 Documento de passagem para quem continuar este trabalho. Resume o que foi decidido, o que foi medido, o que
 existe no código e o que falta, em ordem. O plano completo da fase está em `docs/plano-render-real.md`
@@ -46,6 +46,8 @@ threads no PC, e não conhecia Unity nem Blender antes deste trabalho.
 | **16/11** | **Fase fechada e GPU liberada** (decisão do Pedro) | O controle já respondeu a pergunta da fase |
 | 16/11 | Investigar a queda da `hvr_l2`: segundo controle (sintético no `molejo`, 5 × `hvr_l2`) e sondas de ping (o Pedro aprovou) | Fechar sem saber a causa deixava um resultado da Fase 8 sem referência neste testbed |
 | **16/11** | **Parar a investigação na correlação, sem o teste de reservar CPU ao `ue-vr-07`** (decisão do Pedro) | A causa provável (CPU do `molejo` disputada pelo player do gold) já explica o que se viu; provar custa ~1 h 30 min e muda o ambiente |
+| 17/11 | Conferir o que muda entre o `blacksabbath` e o `molejo`, só com o Prometheus (o Pedro aprovou) | Os dois têm a mesma especificação e esperam diferente; a prioridade de CPU só testa a causa certa se o problema não estiver no tratamento de pacotes pelo kernel |
+| **17/11** | **Fixar o UERANSIM pelo digest da Fase 9, não rodar mais experimentos por ora e escrever** (decisão do Pedro) | A conferência achou o UERANSIM em versões diferentes nas Fases 8 e 9 (tag `latest`). A queda é do testbed, não do leilão nem do render, e nenhum resultado já medido depende dela |
 
 ## O que foi medido (04/11/2026, PC do Pedro: RTX 4060 Ti, 12 threads, Unity 2022.3.62f3, Linux)
 
@@ -277,6 +279,11 @@ Resultado completo em `docs/render-real.md`. Em resumo:
   `molejo` com os núcleos disputados pelo player do gold (espera do escalonador 2,5 s/s contra 1,1 no `blacksabbath`,
   na Fase 8). Causa provável: falta de CPU no nó dos UEs. Detalhes e tabelas em `docs/render-real.md`, seção "A causa
   da queda". Não está provada: o teste de reservar CPU ao `ue-vr-07` não foi feito (decisão do Pedro).
+- **Conferência dos dois nós (17/11):** o hardware do `blacksabbath` e do `molejo` é igual e roda igual (frequência,
+  temperatura, rede dividida entre os núcleos), mas o software não: a Fase 8 usou o UERANSIM de 19/10 e a Fase 9 o de
+  08/11 (a tag `latest` mudou), e kubelet, containerd e Ubuntu também diferem. Com a mesma carga, o kernel do
+  `molejo` trata pior os pacotes (~5 vezes mais softnet squeezed). Nó e versão mudaram juntos. A versão ficou fixa
+  (`docs/ambiente-continuo.md`, seção 3), e o `docs/render-real.md` tem um parágrafo pronto para o texto.
 
 Depois do controle, o `vr-app-01` voltou ao render real e foi conferido: 60 fps com a GPU e `health=1`. Na mesma tarde
 (16/11), com a fase fechada, o Deployment foi apagado para liberar a GPU do `metallica`. O Service e o ServiceMonitor
@@ -312,6 +319,7 @@ ficaram. Para subir de novo: `scripts/trocar_servidor_vr.sh render` (ou `build_t
 | `scripts/sonda_rede.sh <pasta>` | 4 pings paralelos do `ue-vr-07` (rede e túnel até a `upf4` e até o `vr-app-01`); ao parar, mata os pings do pod. Rodar num tmux `sonda` durante a fila |
 | `metricas_scripts/analise_sondas.py <sondas> <execuções>` | Cruza os pings com as janelas da VR e imprime a tabela de boas × ruins e o Spearman; grava o `janelas.csv` |
 | `metricas_scripts/t0_execucoes.py` e `prom_cpu_no_hvr_l2.py` | O primeiro lista o horário de início de cada execução; o segundo, lido por stdin e rodado na ledzeppelin, pega no Prometheus a CPU do player do gold, a espera do escalonador e a CPU da `upf4` por execução (fases 64–346 e 791–901 s) |
+| `metricas_scripts/prom_nucleos_hvr_l2.py` | Lido por stdin como o anterior, na ledzeppelin: o nó dos UEs núcleo a núcleo (frequência real, temperatura, rede por núcleo, softnet squeezed, espera) e o digest do UERANSIM por execução |
 | `scripts/pfcp_upf.py` (`reiniciar-ue`) | Com o render real no ar, o conserto recria o UE de VR com o passeio (sem ele, o Unity não seguiria o cliente) |
 
 **O contrato PhotonPath ↔ Unity** (em `docs/plano-render-real.md`): pose repassada = `PPOS` 128 B +
@@ -340,10 +348,11 @@ raiz do nó (`nr_periods 0`), então o throttling se lê no caminho de `/proc/se
 2. ~~**Etapa 7**~~: feita em 12 e 13/11, com o controle em 16/11 (seção "A validação e o controle").
 3. ~~**`docs/render-real.md`**~~: escrito em 16/11, e o `docs/plano-render-real.md` atualizado.
 4. ~~**Fechar a fase**~~: fechada em 16/11 e com a GPU liberada (decisão do Pedro).
-   ~~**Investigar a queda da `hvr_l2`**~~: feita em 16/11 (segundo controle, sondas, Prometheus). Falta só a prova,
-   se o Pedro quiser: reservar CPU ao `ue-vr-07` e repetir 5 × `hvr_l2`.
-5. Trazer `resultados/fase9*` e as análises para o PC (`fase9_analise`, `fase9s_analise`, `fase9_vs_9s`), atualizar
-   o `CLAUDE.md` e, no fim, o fast-forward da `pedro/6443-pfsevaldt` (passo do Pedro).
+   ~~**Investigar a queda da `hvr_l2`**~~: feita em 16/11 (segundo controle, sondas, Prometheus) e 17/11 (conferência
+   dos dois nós). Sem experimentos novos por ora (decisão do Pedro, 17/11); os testes que provariam estão em
+   `docs/render-real.md`, "O que se conclui, e o que falta".
+5. ~~Trazer `resultados/fase9*` e as análises para o PC e atualizar o `CLAUDE.md`~~: feito em 17/11. Falta o push da
+   tag `v2.2-fase9` e, se o Pedro quiser, levar a `main` do GitHub até a `vr-photonpath` (passos do Pedro).
 
 Para regravar o passeio: `unity/README.md`, etapa A, item 6. O CSV vai para `Assets/StreamingAssets/passeio.csv`
 e `vr/passeio.csv`; depois, recompilar o player (a lista de cenas do build está vazia: o Unity compila a cena
